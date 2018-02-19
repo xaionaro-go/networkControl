@@ -18,27 +18,24 @@ type AccessDetails struct {
 }
 
 type fwsmHost struct {
-	base networkControl.HostBase
+	networkControl.HostBase
 	accessDetails *AccessDetails
 }
 
 func NewHost(accessDetails *AccessDetails) networkControl.HostI {
 	host := fwsmHost{}
+	host.HostBase.parent = &host
 	if accessDetails != nil {
 		accessDetailsCopy := *accessDetails
 		host.accessDetails = &accessDetailsCopy
 	} else {
 		panic(errNotImplemented)
 	}
-	host.base.SetFirewall(fwsm.NewFirewall())
+	host.HostBase.SetFirewall(fwsm.NewFirewall())
 	return &host
 }
 
 func (fwsmHost *fwsmHost) SetFirewall() error {
-	return errNotImplemented
-}
-
-func (fwsmHost *fwsmHost) AddBridgedVLAN(iface net.Interface) error {
 	return errNotImplemented
 }
 

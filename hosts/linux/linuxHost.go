@@ -4,7 +4,6 @@ import (
 	"errors"
 	"github.com/xaionaro-go/networkControl"
 	"github.com/xaionaro-go/networkControl/firewalls/iptables"
-	"net"
 )
 
 var (
@@ -18,18 +17,22 @@ type AccessDetails struct {
 }
 
 type linuxHost struct {
-	base networkControl.HostBase
+	networkControl.HostBase
 	accessDetails *AccessDetails
 }
 
 func NewHost(accessDetails *AccessDetails) networkControl.HostI {
 	host := linuxHost{}
+	err := host.HostBase.SetParent(&host)
+	if err != nil {
+		panic(err)
+	}
 	if accessDetails != nil {
 		panic(errNotImplemented)
 		accessDetailsCopy := *accessDetails
 		host.accessDetails = &accessDetailsCopy
 	}
-	host.base.SetFirewall(iptables.NewFirewall())
+	host.HostBase.SetFirewall(iptables.NewFirewall())
 	return &host
 }
 
@@ -37,13 +40,19 @@ func (linuxHost *linuxHost) SetFirewall(newFirewall networkControl.FirewallI) er
 	return errNotImplemented
 }
 func (linuxHost linuxHost) GetFirewall() networkControl.FirewallI {
-	return linuxHost.base.GetFirewall()
+	return linuxHost.HostBase.GetFirewall()
 }
 
-func (linuxHost *linuxHost) AddBridgedVLAN(iface net.Interface) error {
+func (linuxHost *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 	return errNotImplemented
 }
-func (linuxHost *linuxHost) RemoveBridgedVLAN(vlanId int) error {
+func (linuxHost *linuxHost) RescanState() error {
+	return errNotImplemented
+}
+func (linuxHost *linuxHost) SaveToDisk() error { // ATM, works only with Debian with preinstalled packages: "iptables" and "ipset"!
+	return errNotImplemented
+}
+func (linuxHost *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian with preinstalled packages: "iptables" and "ipset"!
 	return errNotImplemented
 }
 
