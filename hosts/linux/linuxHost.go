@@ -1,9 +1,11 @@
 package linuxHost
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"github.com/vishvananda/netlink"
+	"github.com/xaionaro-go/isccfg"
 	"github.com/xaionaro-go/netTree"
 	"github.com/xaionaro-go/networkControl"
 	"github.com/xaionaro-go/networkControl/firewalls/iptables"
@@ -13,6 +15,10 @@ import (
 
 var (
 	errNotImplemented = errors.New("not implemented, yet")
+)
+
+const (
+	DHCP_CONFIG_PATH = "/etc/dhcp/dhcpd.conf"
 )
 
 type AccessDetails struct {
@@ -48,7 +54,33 @@ func (host *linuxHost) SetFirewall(newFirewall networkControl.FirewallI) error {
 func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 	return errNotImplemented
 }
-func (host *linuxHost) scanBridgedVLANs(ifaces netTree.Nodes) networkControl.VLANs { // TODO: consider possibility of .1q in .1q
+func (host *linuxHost) InquireDHCP() (common networkControl.DHCPCommon, subnets networkControl.DHCPs) {
+	// Scanning on the local machine only, so "accessDetails" is not supported, yet
+	if host.accessDetails != nil {
+		panic(errNotImplemented)
+	}
+
+	cfgFile, err := os.Open(DHCP_CONFIG_PATH)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Got an error from os.Open(\"%v\"): %v", DHCP_CONFIG_PATH, err.Error())
+	}
+	defer cfgFile.Close()
+
+	cfgReader := bufio.NewReader(cfgFile)
+
+	cfg, err := isccfg.Parse(cfgReader)
+
+	return
+}
+func (host *linuxHost) InquireBridgedVLANs() networkControl.VLANs {
+	// Scanning on the local machine only, so "accessDetails" is not supported, yet
+	if host.accessDetails != nil {
+		panic(errNotImplemented)
+	}
+
+	return host.inquireBridgedVLANs(netTree.GetTree().ToSlice())
+}
+func (host *linuxHost) inquireBridgedVLANs(ifaces netTree.Nodes) networkControl.VLANs { // TODO: consider possibility of .1q in .1q
 	vlans := networkControl.VLANs{}
 
 	for _, iface := range ifaces {
@@ -96,12 +128,12 @@ func (host *linuxHost) scanBridgedVLANs(ifaces netTree.Nodes) networkControl.VLA
 	return vlans
 }
 func (host *linuxHost) RescanState() error {
-	if host.accessDetails != nil {
-		panic(errNotImplemented)
-	}
-	ifaces := netTree.GetTree().ToSlice() // Scanning on the local machine only, so "accessDetails" is not supported, yet
-
-	host.States.Cur.BridgedVLANs = host.scanBridgedVLANs(ifaces)
+	host.States.Cur.DHCP, host.States.Cur.DHCPs = host.InquireDHCP()
+	host.States.Cur.BridgedVLANs = host.InquireBridgedVLANs()
+	host.States.Cur.ACLs         = host.InquireACLs()
+	host.States.Cur.SNATs        = host.InquireSNATs()
+	host.States.Cur.DNATs        = host.InquireDNATs()
+	host.States.Cur.Routes       = host.InquireRoutes()
 
 	return errNotImplemented
 }
