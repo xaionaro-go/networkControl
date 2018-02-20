@@ -2,16 +2,16 @@ package networkControl
 
 import ()
 
-type states struct {
+type States struct {
 	Old State
 	New State
 	Cur State
 }
 
 type HostBase struct {
-	states   states
 	parent   HostI
 	firewall FirewallI
+	States   States
 }
 
 func (host HostBase) SetParent(newParent HostI) error {
@@ -30,16 +30,16 @@ func (host HostBase) GetFirewall() FirewallI {
 	return host.firewall
 }
 func (host *HostBase) AddBridgedVLAN(vlan VLAN) (err error) {
-	return host.states.New.AddBridgedVLAN(vlan)
+	return host.States.New.AddBridgedVLAN(vlan)
 }
 func (host *HostBase) RemoveBridgedVLAN(vlanId int) error {
-	return host.states.New.RemoveBridgedVLAN(vlanId)
+	return host.States.New.RemoveBridgedVLAN(vlanId)
 }
 func (host HostBase) GetVLAN(vlanId int) VLAN {
-	return host.states.Cur.GetVLAN(vlanId)
+	return host.States.Cur.GetVLAN(vlanId)
 }
 func (host HostBase) Apply() error {
-	stateDiff := host.states.New.Diff(host.states.Cur)
+	stateDiff := host.States.New.Diff(host.States.Cur)
 	err1 := host.parent.ApplyDiff(stateDiff)
 	err2 := host.RescanState()
 	if err1 != nil {
@@ -55,7 +55,7 @@ func (host HostBase) ApplySave() error {
 	return host.Save()
 }
 func (host HostBase) Revert() error {
-	host.states.New = host.states.Old
+	host.States.New = host.States.Old
 	return nil
 }
 func (host HostBase) RevertApply() error {
@@ -66,7 +66,7 @@ func (host HostBase) RevertApply() error {
 	return host.Apply()
 }
 func (host HostBase) Save() error {
-	host.states.Old = host.states.Cur
+	host.States.Old = host.States.Cur
 	return host.parent.SaveToDisk()
 }
 func (host HostBase) RescanState() error {
@@ -96,6 +96,7 @@ type HostI interface {
 }
 
 type FirewallI interface {
+	InquireSecurityLevel(ifName string) int
 }
 
 type Hosts []HostI
@@ -228,4 +229,9 @@ func (hosts Hosts) RescanState() error {
 		}
 	}
 	return nil
+}
+
+func (firewalls Firewalls) InquireSecurityLevel(string) int {
+	panic("Not implemented, yet")
+	return -1
 }

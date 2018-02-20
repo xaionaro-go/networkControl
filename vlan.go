@@ -6,6 +6,9 @@ import (
 
 type VLAN struct {
 	net.Interface
+	VlanId        int
+	IPs           IPNets
+	SecurityLevel int
 }
 
 func NewVLAN(iface net.Interface) *VLAN {

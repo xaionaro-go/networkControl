@@ -10,11 +10,11 @@ const (
 )
 
 type AccessDetails struct {
-	Host string
-	Slot int
-	Processor int
+	Host          string
+	Slot          int
+	Processor     int
 	EntryPassword string
-	FWSMPassword string
+	FWSMPassword  string
 }
 
 type fwsmHost struct {
@@ -38,4 +38,3 @@ func NewHost(accessDetails *AccessDetails) networkControl.HostI {
 func (fwsmHost *fwsmHost) SetFirewall() error {
 	return errNotImplemented
 }
-

@@ -5,11 +5,8 @@ import (
 )
 
 type fwsm struct {
-	
 }
 
 func NewFirewall() networkControl.FirewallI {
 	return &fwsm{}
 }
-
-

@@ -1,32 +1,18 @@
 package networkControl
 
 import (
-	"fmt"
-	"github.com/1046102779/slicelement"
+	"github.com/xaionaro-go/handySlices"
 	"reflect"
 )
 
 type State struct {
+	DHCP         DHCPCommon
 	BridgedVLANs VLANs
-}
-
-
-func compareFunc(aI, bI interface{}) bool {
-	switch a := aI.(type) {
-	case VLAN:
-		return a.Index == bI.(VLAN).Index
-	}
-
-	panic(fmt.Errorf("This shouldn't happened: %T", aI))
-}
-
-func keyField(objsName string) string {
-	switch objsName {
-	case "BridgedVLANs":
-		return "Index"
-	}
-
-	panic("This shouldn't happened: <"+objsName+">")
+	ACLs         ACLs
+	SNATs        SNATs
+	DNATs        DNATs
+	DHCPs        DHCPs
+	Routes       Routes
 }
 
 func setDiffByOneField(diff *StateDiff, newState State, oldState State, paramName string) {
@@ -36,22 +22,13 @@ func setDiffByOneField(diff *StateDiff, newState State, oldState State, paramNam
 	slice0 := newStateV.FieldByName(paramName)
 	slice1 := oldStateV.FieldByName(paramName)
 
-	added, err := slicelement.GetDifference(slice0.Interface(), slice1.Interface(), keyField(paramName))
-	if err != nil {
-		panic(err)
-	}
+	added := handySlices.GetSubtraction(slice0.Interface(), slice1.Interface())
 	reflect.ValueOf(&diff.Added).Elem().FieldByName(paramName).Set(reflect.ValueOf(added))
 
-	removed, err := slicelement.GetDifference(slice1.Interface(), slice0.Interface(), keyField(paramName))
-	if err != nil {
-		panic(err)
-	}
+	removed := handySlices.GetSubtraction(slice1.Interface(), slice0.Interface())
 	reflect.ValueOf(&diff.Removed).Elem().FieldByName(paramName).Set(reflect.ValueOf(removed))
 
-	updated, err := slicelement.GetInteraction(slice0.Interface(), slice1.Interface(), keyField(paramName))
-	if err != nil {
-		panic(err)
-	}
+	updated := handySlices.GetIntersection(slice0.Interface(), slice1.Interface())
 	reflect.ValueOf(&diff.Updated).Elem().FieldByName(paramName).Set(reflect.ValueOf(updated))
 }
 
