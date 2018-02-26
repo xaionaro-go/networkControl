@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/vishvananda/netlink"
+	"github.com/xaionaro-go/iscDhcp"
 	"github.com/xaionaro-go/isccfg"
 	"github.com/xaionaro-go/netTree"
 	"github.com/xaionaro-go/networkControl"
@@ -14,7 +15,7 @@ import (
 )
 
 var (
-	errNotImplemented = errors.New("not implemented, yet")
+	errNotImplemented = errors.New("not implemented (yet?)")
 )
 
 const (
@@ -30,6 +31,7 @@ type AccessDetails struct {
 type linuxHost struct {
 	networkControl.HostBase
 	accessDetails *AccessDetails
+	dhcpd         *iscDhcp.DHCP
 }
 
 func NewHost(accessDetails *AccessDetails) networkControl.HostI {
@@ -44,6 +46,7 @@ func NewHost(accessDetails *AccessDetails) networkControl.HostI {
 		host.accessDetails = &accessDetailsCopy
 	}
 	host.HostBase.SetFirewall(iptables.NewFirewall())
+	host.dhcp = iscDhcp.NewDHCP()
 	return &host
 }
 
@@ -54,23 +57,17 @@ func (host *linuxHost) SetFirewall(newFirewall networkControl.FirewallI) error {
 func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 	return errNotImplemented
 }
-func (host *linuxHost) InquireDHCP() (common networkControl.DHCPCommon, subnets networkControl.DHCPs) {
+func (host *linuxHost) InquireDHCP() (dhcp networkControl.DHCP) {
 	// Scanning on the local machine only, so "accessDetails" is not supported, yet
 	if host.accessDetails != nil {
 		panic(errNotImplemented)
 	}
 
-	cfgFile, err := os.Open(DHCP_CONFIG_PATH)
+	err = host.dhcpd.ReloadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Got an error from os.Open(\"%v\"): %v", DHCP_CONFIG_PATH, err.Error())
+		panic(err)
 	}
-	defer cfgFile.Close()
-
-	cfgReader := bufio.NewReader(cfgFile)
-
-	cfg, err := isccfg.Parse(cfgReader)
-
-	return
+	return networkControl.DHCP(host.dhcpd.Config.Root)
 }
 func (host *linuxHost) InquireBridgedVLANs() networkControl.VLANs {
 	// Scanning on the local machine only, so "accessDetails" is not supported, yet
@@ -128,16 +125,30 @@ func (host *linuxHost) inquireBridgedVLANs(ifaces netTree.Nodes) networkControl.
 	return vlans
 }
 func (host *linuxHost) RescanState() error {
-	host.States.Cur.DHCP, host.States.Cur.DHCPs = host.InquireDHCP()
+	host.States.Cur.DHCP = host.InquireDHCP()
 	host.States.Cur.BridgedVLANs = host.InquireBridgedVLANs()
-	host.States.Cur.ACLs         = host.InquireACLs()
-	host.States.Cur.SNATs        = host.InquireSNATs()
-	host.States.Cur.DNATs        = host.InquireDNATs()
-	host.States.Cur.Routes       = host.InquireRoutes()
+	host.States.Cur.ACLs = host.InquireACLs()
+	host.States.Cur.SNATs = host.InquireSNATs()
+	host.States.Cur.DNATs = host.InquireDNATs()
+	host.States.Cur.Routes = host.InquireRoutes()
 
 	return errNotImplemented
 }
-func (host *linuxHost) SaveToDisk() error { // ATM, works only with Debian with preinstalled packages: "iptables" and "ipset"!
+func (host *linuxHost) SetDHCPState(state State) error {
+
+	return errNotImplemented
+}
+func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian with preinstalled packages: "iptables" and "ipset"!
+	host.SetDHCPState(host.States.Cur)
+	err = host.dhcp.SaveConfig()
+	if err != nil {
+		return err
+	}
+
+	// iptables
+
+	// ipset
+
 	return errNotImplemented
 }
 func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian with preinstalled packages: "iptables" and "ipset"!

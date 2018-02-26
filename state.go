@@ -6,12 +6,11 @@ import (
 )
 
 type State struct {
-	DHCP         DHCPCommon
+	DHCP         DHCP
 	BridgedVLANs VLANs
 	ACLs         ACLs
 	SNATs        SNATs
 	DNATs        DNATs
-	DHCPs        DHCPs
 	Routes       Routes
 }
 

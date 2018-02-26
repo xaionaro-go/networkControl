@@ -44,10 +44,6 @@ func IPNetFromStrings(ipStr string, maskStr string) (ipnet IPNet, err error) {
 	return
 }
 
-func NSFromString(nsStr string) net.NS {
-	return net.NS{Host: nsStr}
-}
-
 func PortFromString(portStr string) uint16 {
 	// sed -e 's/#.*//g' /etc/services | awk '{if($1 == "" || alreadySet[$1] == 1){next}; gsub("/.*", "", $2); print "case \""$1"\": return "$2; alreadySet[$1]=1; if(alreadySet[$3] ==1 ){next}  if ($3 != ""){print "case \""$3"\": return "$2;}  alreadySet[$3]=1}'; echo 'case "imap4": return 143'; echo 'case "pptp": return 1723'
 

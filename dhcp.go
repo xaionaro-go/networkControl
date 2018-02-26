@@ -1,14 +1,26 @@
 package networkControl
 
 import (
-	"net"
+	"github.com/xaionaro-go/iscDhcp/cfg"
 )
 
+type DHCP cfg.Root
+type DHCPRange cfg.Range
+type DHCPSubnet struct {
+	cfg.Subnet
+}
+
+func NewDHCP() *DHCP {
+	return (*DHCP)(cfg.NewRoot())
+}
+
+/*
 type DHCPOptionValueType int
 
 const (
 	DHCPOPT_UNKNOWN = DHCPOptionValueType(0)
 	DHCPOPT_ASCII   = DHCPOptionValueType(1)
+	DHCPOPT_HEX     = DHCPOptionValueType(2)
 )
 
 type DHCPCommon struct {
@@ -35,3 +47,4 @@ type DHCPOption struct {
 
 type DHCPOptions []DHCPOption
 type DHCPs []DHCP
+*/
