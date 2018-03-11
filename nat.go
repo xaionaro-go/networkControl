@@ -7,7 +7,7 @@ import (
 type SNATSource struct {
 	IPNet
 
-	// for FWSM config only:
+	// for FWSM config only?
 	IfName string
 }
 
@@ -25,7 +25,7 @@ type DNAT struct {
 	Destinations IPPorts
 	NATTo        IPPort
 
-	// for FWSM config only:
+	// for FWSM config only?
 	IfName string
 }
 

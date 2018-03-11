@@ -100,6 +100,16 @@ type FirewallI interface {
 	InquireACLs()  ACLs
 	InquireSNATs() SNATs
 	InquireDNATs() DNATs
+
+	AddACL(ACL) error
+	AddSNAT(SNAT) error
+	AddDNAT(DNAT) error
+	UpdateACL(ACL) error
+	UpdateSNAT(SNAT) error
+	UpdateDNAT(DNAT) error
+	RemoveACL(ACL) error
+	RemoveSNAT(SNAT) error
+	RemoveDNAT(DNAT) error
 }
 
 type Hosts []HostI
@@ -249,4 +259,40 @@ func (firewalls Firewalls) InquireSNATs() SNATs {
 func (firewalls Firewalls) InquireDNATs() DNATs {
 	panic("Not implemented, yet")
 	return DNATs{}
+}
+func (firewalls Firewalls) AddACL(acl ACL) error {
+	panic("Not implemented, yet")
+	return nil
+}
+func (firewalls Firewalls) AddSNAT(snat SNAT) error {
+	panic("Not implemented, yet")
+	return nil
+}
+func (firewalls Firewalls) AddDNAT(dnat DNAT) error {
+	panic("Not implemented, yet")
+	return nil
+}
+func (firewalls Firewalls) UpdateACL(acl ACL) error {
+	panic("Not implemented, yet")
+	return nil
+}
+func (firewalls Firewalls) UpdateSNAT(snat SNAT) error {
+	panic("Not implemented, yet")
+	return nil
+}
+func (firewalls Firewalls) UpdateDNAT(dnat DNAT) error {
+	panic("Not implemented, yet")
+	return nil
+}
+func (firewalls Firewalls) RemoveACL(acl ACL) error {
+	panic("Not implemented, yet")
+	return nil
+}
+func (firewalls Firewalls) RemoveSNAT(snat SNAT) error {
+	panic("Not implemented, yet")
+	return nil
+}
+func (firewalls Firewalls) RemoveDNAT(dnat DNAT) error {
+	panic("Not implemented, yet")
+	return nil
 }

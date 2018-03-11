@@ -33,9 +33,14 @@ func setDiffByOneField(diff *StateDiff, newState State, oldState State, paramNam
 
 func (newState State) Diff(oldState State) (diff StateDiff) {
 	stateV := reflect.ValueOf(oldState)
-	for i := 0; i < stateV.NumField(); i++ { // foreach all fields
+	for i := 0; i < stateV.NumField(); i++ { // foreach all slice fields
+		if stateV.Field(i).Kind() != reflect.Slice {
+			continue
+		}
 		setDiffByOneField(&diff, newState, oldState, stateV.Type().Field(i).Name)
 	}
+
+	diff.Updated.DHCP = newState.DHCP
 
 	return
 }

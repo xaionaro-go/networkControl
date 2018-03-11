@@ -40,6 +40,11 @@ func IPNetFromCIDRString(cidrString string) (ipnet IPNet, err error) {
 	return
 }
 
+func (ipnet IPNet) String() string {
+	t := net.IPNet(ipnet)
+	return t.String()
+}
+
 func IPNetUnmaskedFromStrings(ipStr string, maskStr string) (ipnet IPNet, err error) {
 	ipnet.IP = net.ParseIP(ipStr)
 	ipnet.Mask = net.IPMask(net.ParseIP(maskStr))
