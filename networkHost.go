@@ -97,6 +97,9 @@ type HostI interface {
 
 type FirewallI interface {
 	InquireSecurityLevel(ifName string) int
+	InquireACLs()  ACLs
+	InquireSNATs() SNATs
+	InquireDNATs() DNATs
 }
 
 type Hosts []HostI
@@ -234,4 +237,16 @@ func (hosts Hosts) RescanState() error {
 func (firewalls Firewalls) InquireSecurityLevel(string) int {
 	panic("Not implemented, yet")
 	return -1
+}
+func (firewalls Firewalls) InquireACLs() ACLs {
+	panic("Not implemented, yet")
+	return ACLs{}
+}
+func (firewalls Firewalls) InquireSNATs() SNATs {
+	panic("Not implemented, yet")
+	return SNATs{}
+}
+func (firewalls Firewalls) InquireDNATs() DNATs {
+	panic("Not implemented, yet")
+	return DNATs{}
 }

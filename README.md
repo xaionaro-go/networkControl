@@ -9,3 +9,14 @@ ATM, works only on Debian/Stretch
 ```sh
 apt-get install iptables ipset isc-dhcp-server
 ```
+
+=== Post isntall
+
+Add
+
+```
+128 fwsm
+```
+
+to `/etc/iproute2/rt_tables`
+

@@ -1,17 +1,17 @@
 package linuxHost
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"github.com/vishvananda/netlink"
 	"github.com/xaionaro-go/iscDhcp"
-	"github.com/xaionaro-go/isccfg"
 	"github.com/xaionaro-go/netTree"
 	"github.com/xaionaro-go/networkControl"
 	"github.com/xaionaro-go/networkControl/firewalls/iptables"
 	"net"
 	"os"
+	"os/exec"
+	"strings"
 )
 
 var (
@@ -46,7 +46,7 @@ func NewHost(accessDetails *AccessDetails) networkControl.HostI {
 		host.accessDetails = &accessDetailsCopy
 	}
 	host.HostBase.SetFirewall(iptables.NewFirewall())
-	host.dhcp = iscDhcp.NewDHCP()
+	host.dhcpd = iscDhcp.NewDHCP()
 	return &host
 }
 
@@ -63,7 +63,7 @@ func (host *linuxHost) InquireDHCP() (dhcp networkControl.DHCP) {
 		panic(errNotImplemented)
 	}
 
-	err = host.dhcpd.ReloadConfig()
+	err := host.dhcpd.ReloadConfig()
 	if err != nil {
 		panic(err)
 	}
@@ -124,9 +124,80 @@ func (host *linuxHost) inquireBridgedVLANs(ifaces netTree.Nodes) networkControl.
 
 	return vlans
 }
+
+func (host *linuxHost) InquireACLs() networkControl.ACLs {
+	return host.GetFirewall().InquireACLs()
+}
+
+func (host *linuxHost) InquireSNATs() networkControl.SNATs {
+	return host.GetFirewall().InquireSNATs()
+}
+
+func (host *linuxHost) InquireDNATs() networkControl.DNATs {
+	return host.GetFirewall().InquireDNATs()
+}
+
+func parseIPNet(words []string) (networkControl.IPNet, []string) {
+	if words[0] == "default" {
+		return networkControl.IPNet{IP: net.ParseIP("0.0.0.0"), Mask: net.IPv4Mask(0, 0, 0, 0)}, words[1:]
+	}
+	ipnet, err := networkControl.IPNetFromCIDRString(words[0])
+	if err != nil {
+		panic(err)
+	}
+	return ipnet, words[1:]
+}
+func parseIP(words []string) (ip net.IP, newWords []string) {
+	ip = net.ParseIP(words[1])
+	newWords = words[1:]
+	return
+}
+
+func (host *linuxHost) InquireRoutes() (result networkControl.Routes) {
+	outB, err := exec.Command("ip route show table fwsm").Output()
+	if err != nil {
+		panic(err)
+	}
+	out := string(outB)
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		words := strings.Split(line, " ")
+		var route networkControl.Route
+
+		route.Destination, words = parseIPNet(words)
+
+		for len(words) > 0 {
+			switch words[0] {
+			case "via":
+				route.Gateway, words = parseIP(words[1:])
+			case "dev":
+				route.IfName = words[1]
+				words = words[2:]
+			case "proto", "kernel", "scope", "link":
+				words = words[1:]
+			case "src":
+				words = words[2:]
+			case "from":
+				var source networkControl.IPNet
+				source, words = parseIPNet(words[1:])
+				route.Sources = append(route.Sources, source)
+			default:
+				panic("unknown word: \""+words[0]+"\"")
+			}
+		}
+		if len(route.Sources) == 0 {
+			route.Sources = networkControl.IPNets{networkControl.IPNet{IP: net.ParseIP("0.0.0.0"), Mask: net.IPv4Mask(0, 0, 0, 0)}}
+		}
+
+		result = append(result, &route)
+	}
+
+	return
+}
+
 func (host *linuxHost) RescanState() error {
-	host.States.Cur.DHCP = host.InquireDHCP()
 	host.States.Cur.BridgedVLANs = host.InquireBridgedVLANs()
+	host.States.Cur.DHCP = host.InquireDHCP()
 	host.States.Cur.ACLs = host.InquireACLs()
 	host.States.Cur.SNATs = host.InquireSNATs()
 	host.States.Cur.DNATs = host.InquireDNATs()
@@ -134,18 +205,18 @@ func (host *linuxHost) RescanState() error {
 
 	return errNotImplemented
 }
-func (host *linuxHost) SetDHCPState(state State) error {
-
+func (host *linuxHost) SetDHCPState(state networkControl.State) error {
 	return errNotImplemented
 }
 func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian with preinstalled packages: "iptables" and "ipset"!
 	host.SetDHCPState(host.States.Cur)
-	err = host.dhcp.SaveConfig()
+	err = host.dhcpd.SaveConfig()
 	if err != nil {
 		return err
 	}
 
 	// iptables
+
 
 	// ipset
 

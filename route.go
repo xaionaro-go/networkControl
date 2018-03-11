@@ -10,7 +10,7 @@ type Route struct {
 	Gateway     net.IP
 	Metric      int
 
-	// for FWSM config only:
+	// TODO: try to remove this
 	IfName string
 }
 

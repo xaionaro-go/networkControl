@@ -30,6 +30,16 @@ func (ipnet IPNet) Contains(ip net.IP) bool {
 	return (*net.IPNet)(&ipnet).Contains(ip)
 }
 
+func IPNetFromCIDRString(cidrString string) (ipnet IPNet, err error) {
+	var ipnetRaw *net.IPNet
+	_, ipnetRaw, err = net.ParseCIDR(cidrString)
+	if err != nil {
+		return
+	}
+	ipnet = IPNet(*ipnetRaw)
+	return
+}
+
 func IPNetUnmaskedFromStrings(ipStr string, maskStr string) (ipnet IPNet, err error) {
 	ipnet.IP = net.ParseIP(ipStr)
 	ipnet.Mask = net.IPMask(net.ParseIP(maskStr))
