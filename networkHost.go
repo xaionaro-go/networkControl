@@ -97,7 +97,7 @@ type HostI interface {
 
 type FirewallI interface {
 	InquireSecurityLevel(ifName string) int
-	InquireACLs()  ACLs
+	InquireACLs() ACLs
 	InquireSNATs() SNATs
 	InquireDNATs() DNATs
 
@@ -110,6 +110,8 @@ type FirewallI interface {
 	RemoveACL(ACL) error
 	RemoveSNAT(SNAT) error
 	RemoveDNAT(DNAT) error
+
+	SetSecurityLevel(ifName string, securityLevel int) error
 }
 
 type Hosts []HostI
@@ -293,6 +295,10 @@ func (firewalls Firewalls) RemoveSNAT(snat SNAT) error {
 	return nil
 }
 func (firewalls Firewalls) RemoveDNAT(dnat DNAT) error {
+	panic("Not implemented, yet")
+	return nil
+}
+func (firewalls Firewalls) SetSecurityLevel(ifName string, securityLevel int) error {
 	panic("Not implemented, yet")
 	return nil
 }

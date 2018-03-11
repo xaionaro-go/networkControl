@@ -83,13 +83,29 @@ func (host *linuxHost) AddVLAN(vlan networkControl.VLAN) error {
 		return err
 	}
 
-	vlanLink := &netlink.Vlan{netlink.LinkAttrs{Name: "trunk."+strconv.Itoa(vlan.VlanId), ParentIndex: trunk.Attrs().Index}, vlan.VlanId}
+	vlanLink := &netlink.Vlan{netlink.LinkAttrs{Name: "trunk." + strconv.Itoa(vlan.VlanId), ParentIndex: trunk.Attrs().Index}, vlan.VlanId}
 	if err := host.netlink.LinkAdd(vlanLink); err != nil {
 		return err
 	}
 
 	if err := host.netlink.LinkSetMaster(vlanLink, bridgeLink); err != nil {
 		return err
+	}
+
+	err = host.GetFirewall().SetSecurityLevel(vlan.Name, vlan.SecurityLevel)
+	if err != nil {
+		return err
+	}
+
+	for _, ip := range vlan.IPs {
+		addr, err := netlink.ParseAddr(ip.String())
+		if err != nil {
+			return err
+		}
+		err = host.netlink.AddrAdd(bridgeLink, addr)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -144,13 +160,12 @@ func (host *linuxHost) UpdateRoute(route networkControl.Route) error {
 	return errNotImplemented
 }
 
-
 func (host *linuxHost) RemoveVLAN(vlan networkControl.VLAN) error {
 	if host.accessDetails != nil {
 		panic(errNotImplemented)
 	}
 
-	vlanLink, err := host.netlink.LinkByName("trunk."+strconv.Itoa(vlan.VlanId))
+	vlanLink, err := host.netlink.LinkByName("trunk." + strconv.Itoa(vlan.VlanId))
 	if err != nil {
 		return err
 	}
@@ -170,6 +185,8 @@ func (host *linuxHost) RemoveVLAN(vlan networkControl.VLAN) error {
 	if err != nil {
 		return err
 	}
+
+	panic("errNotImplemented") // TODO: clean up security levels chain in iptables
 
 	return nil
 }
@@ -443,7 +460,7 @@ func (host *linuxHost) InquireRoutes() (result networkControl.Routes) {
 				source, words = parseIPNet(words[1:])
 				route.Sources = append(route.Sources, source)
 			default:
-				panic("unknown word: \""+words[0]+"\"")
+				panic("unknown word: \"" + words[0] + "\"")
 			}
 		}
 		if len(route.Sources) == 0 {
