@@ -274,11 +274,66 @@ func (fw iptables) InquireSNATs() (result networkControl.SNATs) {
 			}
 		}
 		snat.Sources = append(snat.Sources, source)
+
+		result = append(result, &snat)
 	}
 	return
 }
 func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
-	panic("Not implemented, yet")
+	ruleStrings, err := fw.iptables.List("dnat", "DNATs")
+	if err != nil {
+		panic(err)
+	}
+	for _, ruleString := range ruleStrings {
+		words := strings.Split(ruleString, " ")
+		dnat := networkControl.DNAT{}
+		destination := networkControl.IPPort{}
+		for len(words) > 0 {
+			switch words[0] {
+			case "-o":
+				dnat.IfName = words[1]
+				words = words[2:]
+
+			case "-m":
+				words = words[2:]
+
+			case "-d":
+				var err error
+				destination.IP = net.ParseIP(words[1])
+				if err != nil {
+					panic(err)
+				}
+				words = words[2:]
+
+			case "-p":
+				proto := networkControl.ProtocolFromString(words[1])
+				destination.Protocol = &proto
+
+			case "--dport":
+				port, err := strconv.Atoi(words[1])
+				if err != nil {
+					panic(err)
+				}
+				portU16 := uint16(port)
+				destination.Port = &portU16
+				dnat.NATTo.Port = &portU16
+				words = words[2:]
+
+			case "-j":
+				if words[1] != "DNAT" || words[2] != "--to-destination" {
+					panic("illegal rule: "+ruleString)
+				}
+				dnat.NATTo.IP = net.ParseIP(words[3])
+				words = words[4:]
+
+			default:
+				panic(errNotImplemented)
+			}
+		}
+		dnat.Destinations = append(dnat.Destinations, destination)
+
+		result = append(result, &dnat)
+	}
 	return
 }
 
