@@ -1,13 +1,16 @@
 package linuxHost
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/vishvananda/netlink"
 	"github.com/xaionaro-go/iscDhcp"
+	"github.com/xaionaro-go/iscDhcp/cfg"
 	"github.com/xaionaro-go/netTree"
 	"github.com/xaionaro-go/networkControl"
 	"github.com/xaionaro-go/networkControl/firewalls/iptables"
+	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
@@ -141,6 +144,94 @@ func (host *linuxHost) AddRoute(route networkControl.Route) error {
 }
 
 func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
+
+	// Getting current configuration
+
+	oldVlan := host.InquireBridgedVLAN(vlan.VlanId)
+	if oldVlan == nil {
+		panic(fmt.Errorf("oldVlan == nil: %v", vlan))
+	}
+	if oldVlan.Name != vlan.Name {
+		return errNotImplemented
+	}
+
+	// Fixeding the security level
+
+	if oldVlan.SecurityLevel != vlan.SecurityLevel {
+		err := host.GetFirewall().SetSecurityLevel(vlan.Name, vlan.SecurityLevel)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Checking for added and removed IP addresses
+
+	addIPs := networkControl.IPNets{}
+	remIPs := networkControl.IPNets{}
+
+	oldIPsMap := map[string]*networkControl.IPNet{}
+	for idx, ip := range oldVlan.IPs {
+		oldIPsMap[ip.String()] = &oldVlan.IPs[idx]
+	}
+
+	newIPsMap := map[string]*networkControl.IPNet{}
+	for idx, ip := range vlan.IPs {
+		newIPsMap[ip.String()] = &vlan.IPs[idx]
+		if oldIPsMap[ip.String()] != nil {
+			continue
+		}
+		addIPs = append(addIPs, ip)
+	}
+
+	for _, ip := range oldVlan.IPs {
+		if newIPsMap[ip.String()] != nil {
+			continue
+		}
+		remIPs = append(remIPs, ip)
+	}
+
+	// Getting netlink pointers
+
+	bridgeLink, err := host.netlink.LinkByName(vlan.Name)
+	if err != nil {
+		return err
+	}
+	curAddrs, err := host.netlink.AddrList(bridgeLink, netlink.FAMILY_V4)
+	if err != nil {
+		return err
+	}
+	curAddrMap := map[string]*netlink.Addr{}
+	for idx, addr := range curAddrs {
+		addrString := strings.Split(addr.String(), " ")[0]
+		curAddrMap[addrString] = &curAddrs[idx]
+	}
+
+	// Adding and removing IP addresses
+
+	for _, ip := range remIPs {
+		addr := curAddrMap[ip.String()]
+		if addr == nil {
+			panic(fmt.Errorf("This shouldn't happened: %v", ip))
+		}
+
+		err := host.netlink.AddrDel(bridgeLink, addr)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, ip := range addIPs {
+		addr, err := netlink.ParseAddr(ip.String())
+		if err != nil {
+			return err
+		}
+
+		err = host.netlink.AddrAdd(bridgeLink, addr)
+		if err != nil {
+			return err
+		}
+	}
+
 	return errNotImplemented
 }
 
@@ -221,6 +312,9 @@ func (host *linuxHost) RemoveRoute(route networkControl.Route) error {
 }
 
 func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
+
+	// Adding
+
 	for _, vlan := range stateDiff.Added.BridgedVLANs {
 		err := host.AddVLAN(*vlan)
 		if err != nil {
@@ -252,24 +346,7 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 		}
 	}
 
-	var err error
-
-	// Running the new state on DHCP
-	oldDHCPState := networkControl.DHCP(host.dhcpd.Config.Root)
-	host.SetDHCPState(stateDiff.Updated.DHCP)
-	err = host.dhcpd.Restart()
-	if err != nil {
-		return err
-	}
-
-	// But we need to revert the old state on the disk (the new state shouldn't be saved on the disk, yet)
-	host.SetDHCPState(oldDHCPState)
-	err = host.dhcpd.SaveConfig()
-	if err != nil {
-		return err
-	}
-	// And the running state should be new in our information
-	host.SetDHCPState(stateDiff.Updated.DHCP)
+	// Updating
 
 	for _, vlan := range stateDiff.Updated.BridgedVLANs {
 		err := host.UpdateVLAN(*vlan)
@@ -301,6 +378,27 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 			return err
 		}
 	}
+
+	var err error
+
+	// Running the new state on DHCP
+	oldDHCPState := networkControl.DHCP(host.dhcpd.Config.Root)
+	host.SetDHCPState(stateDiff.Updated.DHCP)
+	err = host.dhcpd.Restart()
+	if err != nil {
+		return err
+	}
+
+	// But we need to revert the old state on the disk (the new state shouldn't be saved on the disk, yet)
+	host.SetDHCPState(oldDHCPState)
+	err = host.dhcpd.SaveConfig()
+	if err != nil {
+		return err
+	}
+	// And the running state should be new in our information
+	host.SetDHCPState(stateDiff.Updated.DHCP)
+
+	// Removing
 
 	for _, vlan := range stateDiff.Removed.BridgedVLANs {
 		err := host.RemoveVLAN(*vlan)
@@ -354,6 +452,19 @@ func (host *linuxHost) InquireBridgedVLANs() networkControl.VLANs {
 	}
 
 	return host.inquireBridgedVLANs(netTree.GetTree().ToSlice())
+}
+func (host *linuxHost) InquireBridgedVLAN(vlanId int) *networkControl.VLAN {
+	vlans := host.InquireBridgedVLANs()
+
+	for _, vlan := range vlans {
+		if vlan.VlanId != vlanId {
+			continue
+		}
+
+		return vlan
+	}
+
+	return nil
 }
 func (host *linuxHost) inquireBridgedVLANs(ifaces netTree.Nodes) networkControl.VLANs { // TODO: consider possibility of .1q in .1q
 	vlans := networkControl.VLANs{}
@@ -481,16 +592,32 @@ func (host *linuxHost) RescanState() error {
 	host.States.Cur.DNATs = host.InquireDNATs()
 	host.States.Cur.Routes = host.InquireRoutes()
 
-	return errNotImplemented
+	return nil
 }
 func (host *linuxHost) SetDHCPState(state networkControl.DHCP) error {
-	return errNotImplemented
+	host.dhcpd.Config.Root = cfg.Root(state)
+	return nil
 }
+
+type netConfigT struct {
+	VLANs  networkControl.VLANs
+	Routes networkControl.Routes
+}
+
 func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian with preinstalled packages: "iptables" and "ipset"!
 
-	// vlans
+	// vlans and routes
 
-	// routes
+	{
+		netConfig := netConfigT{}
+		netConfig.VLANs  = host.States.Cur.BridgedVLANs
+		netConfig.Routes = host.States.Cur.Routes
+		netConfigJson, _ := json.Marshal(netConfig)
+		err = ioutil.WriteFile("/etc/fwsm-net.json", netConfigJson, 0644)
+		if err != nil {
+			return err
+		}
+	}
 
 	// dhcp
 
@@ -502,10 +629,64 @@ func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian
 
 	// iptables
 
+	_, err = exec.Command("iptables-save > /etc/iptables/fwsm.rules").Output()
+	if err != nil {
+		return err
+	}
+
 	// ipset
 
-	return errNotImplemented
+	_, err = exec.Command("ipset save > /etc/ipset-fwsm.dump").Output()
+	if err != nil {
+		return err
+	}
+
+	// finish
+
+	return nil
 }
 func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian with preinstalled packages: "iptables" and "ipset"!
-	return errNotImplemented
+
+	// vlans and routes
+
+	{
+		plan, _ := ioutil.ReadFile("/etc/fwsm-net.json")
+		netConfig := netConfigT{}
+		err := json.Unmarshal(plan, &netConfig)
+		if err != nil {
+			return err
+		}
+		host.States.New.BridgedVLANs = netConfig.VLANs
+		host.States.New.Routes       = netConfig.Routes
+		err = host.Apply()
+		if err != nil {
+			return err
+		}
+	}
+
+	// ipset
+
+	_, err := exec.Command("ipset restore < /etc/ipset-fwsm.dump").Output()
+	if err != nil {
+		return err
+	}
+
+	// dhcp
+
+	host.SetDHCPState(host.States.Cur.DHCP)
+	err = host.dhcpd.SaveConfig()
+	if err != nil {
+		return err
+	}
+
+	// iptables
+
+	_, err = exec.Command("iptables-restore /etc/iptables/fwsm.rules").Output()
+	if err != nil {
+		return err
+	}
+
+	// finish
+
+	return host.RescanState()
 }
