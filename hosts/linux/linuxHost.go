@@ -543,13 +543,17 @@ func parseIP(words []string) (ip net.IP, newWords []string) {
 }
 
 func (host *linuxHost) InquireRoutes() (result networkControl.Routes) {
-	outB, err := exec.Command("ip route show table fwsm").Output()
+	outB, err := exec.Command("ip", "route", "show", "table", "fwsm").Output()
 	if err != nil {
 		panic(err)
 	}
 	out := string(outB)
 	lines := strings.Split(out, "\n")
 	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+
 		words := strings.Split(line, " ")
 		var route networkControl.Route
 
@@ -629,14 +633,14 @@ func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian
 
 	// iptables
 
-	_, err = exec.Command("iptables-save > /etc/iptables/fwsm.rules").Output()
+	_, err = exec.Command("sh", "-c", "iptables-save > /etc/iptables/fwsm.rules").Output()
 	if err != nil {
 		return err
 	}
 
 	// ipset
 
-	_, err = exec.Command("ipset save > /etc/ipset-fwsm.dump").Output()
+	_, err = exec.Command("ipset", "save", "-file", "/etc/ipset-fwsm.dump").Output()
 	if err != nil {
 		return err
 	}
@@ -649,10 +653,13 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 
 	// vlans and routes
 
-	{
-		plan, _ := ioutil.ReadFile("/etc/fwsm-net.json")
+	if _, err := os.Stat("/etc/fwsm-net.json"); err == nil {
+		plan, err := ioutil.ReadFile("/etc/fwsm-net.json")
+		if err != nil {
+			return err
+		}
 		netConfig := netConfigT{}
-		err := json.Unmarshal(plan, &netConfig)
+		err = json.Unmarshal(plan, &netConfig)
 		if err != nil {
 			return err
 		}
@@ -666,24 +673,28 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 
 	// ipset
 
-	_, err := exec.Command("ipset restore < /etc/ipset-fwsm.dump").Output()
-	if err != nil {
-		return err
+	if _, err := os.Stat("/etc/ipset-fwsm.dump"); err == nil {
+		_, err := exec.Command("ipset", "restore", "-file", "/etc/ipset-fwsm.dump").Output()
+		if err != nil {
+			return err
+		}
 	}
 
 	// dhcp
 
 	host.SetDHCPState(host.States.Cur.DHCP)
-	err = host.dhcpd.SaveConfig()
+	err := host.dhcpd.SaveConfig()
 	if err != nil {
 		return err
 	}
 
 	// iptables
 
-	_, err = exec.Command("iptables-restore /etc/iptables/fwsm.rules").Output()
-	if err != nil {
-		return err
+	if _, err := os.Stat("/etc/ipset-fwsm.dump"); err == nil {
+		_, err := exec.Command("iptables-restore", "/etc/ipset-fwsm.dump").Output()
+		if err != nil {
+			return err
+		}
 	}
 
 	// finish

@@ -233,12 +233,15 @@ func (fw iptables) InquireACLs() (result networkControl.ACLs) {
 	return
 }
 func (fw iptables) InquireSNATs() (result networkControl.SNATs) {
-	ruleStrings, err := fw.iptables.List("snat", "SNATs")
+	ruleStrings, err := fw.iptables.List("nat", "SNATs")
 	if err != nil {
 		panic(err)
 	}
 	for _, ruleString := range ruleStrings {
 		words := strings.Split(ruleString, " ")
+		if words[0] == "-N" {
+			break
+		}
 		snat := networkControl.SNAT{}
 		source := networkControl.SNATSource{}
 		for len(words) > 0 {
@@ -270,7 +273,7 @@ func (fw iptables) InquireSNATs() (result networkControl.SNATs) {
 				snat.NATTo = net.ParseIP(words[3])
 				words = words[4:]
 			default:
-				panic(errNotImplemented)
+				panic(fmt.Errorf("%v: %v: %v", errNotImplemented, words, ruleString))
 			}
 		}
 		snat.Sources = append(snat.Sources, source)
@@ -280,12 +283,15 @@ func (fw iptables) InquireSNATs() (result networkControl.SNATs) {
 	return
 }
 func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
-	ruleStrings, err := fw.iptables.List("dnat", "DNATs")
+	ruleStrings, err := fw.iptables.List("nat", "DNATs")
 	if err != nil {
 		panic(err)
 	}
 	for _, ruleString := range ruleStrings {
 		words := strings.Split(ruleString, " ")
+		if words[0] == "-N" {
+			break
+		}
 		dnat := networkControl.DNAT{}
 		destination := networkControl.IPPort{}
 		for len(words) > 0 {
@@ -327,7 +333,7 @@ func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
 				words = words[4:]
 
 			default:
-				panic(errNotImplemented)
+				panic(fmt.Sprintf("%v: %v: %v", errNotImplemented, words, ruleString))
 			}
 		}
 		dnat.Destinations = append(dnat.Destinations, destination)

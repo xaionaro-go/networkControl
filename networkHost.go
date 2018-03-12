@@ -22,7 +22,7 @@ func (host HostBase) SetParent(newParent HostI) error {
 	host.parent = newParent
 	return nil
 }
-func (host HostBase) SetFirewall(newFirewall FirewallI) error {
+func (host *HostBase) SetFirewall(newFirewall FirewallI) error {
 	host.firewall = newFirewall
 	return nil
 }
@@ -38,7 +38,7 @@ func (host *HostBase) RemoveBridgedVLAN(vlanId int) error {
 func (host HostBase) GetVLAN(vlanId int) VLAN {
 	return host.States.Cur.GetVLAN(vlanId)
 }
-func (host HostBase) Apply() error {
+func (host *HostBase) Apply() error {
 	stateDiff := host.States.New.Diff(host.States.Cur)
 	err1 := host.parent.ApplyDiff(stateDiff)
 	err2 := host.RescanState()
@@ -47,29 +47,29 @@ func (host HostBase) Apply() error {
 	}
 	return err2
 }
-func (host HostBase) ApplySave() error {
+func (host *HostBase) ApplySave() error {
 	err := host.Apply()
 	if err != nil {
 		return err
 	}
 	return host.Save()
 }
-func (host HostBase) Revert() error {
+func (host *HostBase) Revert() error {
 	host.States.New = host.States.Old
 	return nil
 }
-func (host HostBase) RevertApply() error {
+func (host *HostBase) RevertApply() error {
 	err := host.Revert()
 	if err != nil {
 		return err
 	}
 	return host.Apply()
 }
-func (host HostBase) Save() error {
+func (host *HostBase) Save() error {
 	host.States.Old = host.States.Cur
 	return host.parent.SaveToDisk()
 }
-func (host HostBase) RescanState() error {
+func (host *HostBase) RescanState() error {
 	return host.parent.RescanState()
 }
 
