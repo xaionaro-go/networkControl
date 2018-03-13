@@ -60,6 +60,7 @@ func NewHost(accessDetails *AccessDetails) networkControl.HostI {
 }
 
 func (host *linuxHost) SetFirewall(newFirewall networkControl.FirewallI) error {
+	panic(errNotImplemented)
 	return errNotImplemented
 }
 
@@ -152,6 +153,7 @@ func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
 		panic(fmt.Errorf("oldVlan == nil: %v", vlan))
 	}
 	if oldVlan.Name != vlan.Name {
+		panic(errNotImplemented)
 		return errNotImplemented
 	}
 
@@ -232,7 +234,7 @@ func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
 		}
 	}
 
-	return errNotImplemented
+	return nil
 }
 
 func (host *linuxHost) UpdateACL(acl networkControl.ACL) error {
@@ -248,6 +250,7 @@ func (host *linuxHost) UpdateDNAT(dnat networkControl.DNAT) error {
 }
 
 func (host *linuxHost) UpdateRoute(route networkControl.Route) error {
+	panic(errNotImplemented)
 	return errNotImplemented
 }
 
@@ -277,7 +280,7 @@ func (host *linuxHost) RemoveVLAN(vlan networkControl.VLAN) error {
 		return err
 	}
 
-	panic("errNotImplemented") // TODO: clean up security levels chain in iptables
+	panic(errNotImplemented) // TODO: clean up security levels chain in iptables
 
 	return nil
 }

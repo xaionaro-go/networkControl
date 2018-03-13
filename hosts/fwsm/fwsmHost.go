@@ -36,5 +36,6 @@ func NewHost(accessDetails *AccessDetails) networkControl.HostI {
 }
 
 func (fwsmHost *fwsmHost) SetFirewall() error {
+	panic(errNotImplemented)
 	return errNotImplemented
 }

@@ -14,8 +14,9 @@ type HostBase struct {
 	States   States
 }
 
-func (host HostBase) SetParent(newParent HostI) error {
+func (host *HostBase) SetParent(newParent HostI) error {
 	if host.parent != nil {
+		panic(errNotImplemented)
 		return errNotImplemented
 	}
 
@@ -34,6 +35,10 @@ func (host *HostBase) AddBridgedVLAN(vlan VLAN) (err error) {
 }
 func (host *HostBase) RemoveBridgedVLAN(vlanId int) error {
 	return host.States.New.RemoveBridgedVLAN(vlanId)
+}
+func (host *HostBase) SetNewState(newState State) error {
+	host.States.New = newState
+	return nil
 }
 func (host HostBase) GetVLAN(vlanId int) VLAN {
 	return host.States.Cur.GetVLAN(vlanId)
@@ -81,6 +86,8 @@ type HostI interface {
 	GetFirewall() FirewallI
 
 	GetVLAN(vlanId int) VLAN
+
+	SetNewState(newState State) error
 
 	Apply() error
 	ApplySave() error
@@ -161,8 +168,17 @@ func (hosts Hosts) GetFirewall() FirewallI {
 }
 
 func (hosts Hosts) GetVLAN(vlanId int) VLAN {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return VLAN{}
+}
+func (hosts Hosts) SetNewState(newState State) error {
+	for _, host := range hosts {
+		err := host.SetNewState(newState)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 func (hosts Hosts) Apply() error {
 	for _, host := range hosts {
@@ -247,58 +263,58 @@ func (hosts Hosts) RescanState() error {
 }
 
 func (firewalls Firewalls) InquireSecurityLevel(string) int {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return -1
 }
 func (firewalls Firewalls) InquireACLs() ACLs {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return ACLs{}
 }
 func (firewalls Firewalls) InquireSNATs() SNATs {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return SNATs{}
 }
 func (firewalls Firewalls) InquireDNATs() DNATs {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return DNATs{}
 }
 func (firewalls Firewalls) AddACL(acl ACL) error {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return nil
 }
 func (firewalls Firewalls) AddSNAT(snat SNAT) error {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return nil
 }
 func (firewalls Firewalls) AddDNAT(dnat DNAT) error {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return nil
 }
 func (firewalls Firewalls) UpdateACL(acl ACL) error {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return nil
 }
 func (firewalls Firewalls) UpdateSNAT(snat SNAT) error {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return nil
 }
 func (firewalls Firewalls) UpdateDNAT(dnat DNAT) error {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return nil
 }
 func (firewalls Firewalls) RemoveACL(acl ACL) error {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return nil
 }
 func (firewalls Firewalls) RemoveSNAT(snat SNAT) error {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return nil
 }
 func (firewalls Firewalls) RemoveDNAT(dnat DNAT) error {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return nil
 }
 func (firewalls Firewalls) SetSecurityLevel(ifName string, securityLevel int) error {
-	panic("Not implemented, yet")
+	panic(errNotImplemented)
 	return nil
 }

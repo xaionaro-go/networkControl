@@ -40,3 +40,8 @@ type ACLs []*ACL
 func (a ACLs) Len() int           { return len(a) }
 func (a ACLs) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ACLs) Less(i, j int) bool { return a[i].Name < a[j].Name }
+
+func (acl ACL) KeyStringValue() string {
+	return acl.Name
+}
+

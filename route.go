@@ -23,3 +23,7 @@ func (a Routes) Less(i, j int) bool { return a[i].GetPos() < a[j].GetPos() }
 func (route Route) GetPos() string {
 	return route.Gateway.String()
 }
+
+func (route Route) KeyStringValue() string {
+	return route.Destination.String()
+}

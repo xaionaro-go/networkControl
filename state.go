@@ -27,7 +27,7 @@ func setDiffByOneField(diff *StateDiff, newState State, oldState State, paramNam
 	removed := handySlices.GetSubtraction(slice1.Interface(), slice0.Interface())
 	reflect.ValueOf(&diff.Removed).Elem().FieldByName(paramName).Set(reflect.ValueOf(removed))
 
-	updated := handySlices.GetIntersection(slice0.Interface(), slice1.Interface())
+	updated := handySlices.GetDiffedIntersection(slice0.Interface(), slice1.Interface())
 	reflect.ValueOf(&diff.Updated).Elem().FieldByName(paramName).Set(reflect.ValueOf(updated))
 }
 

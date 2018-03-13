@@ -47,3 +47,11 @@ func (a DNATs) Less(i, j int) bool { return a[i].GetPos() < a[j].GetPos() }
 func (dnat DNAT) GetPos() string {
 	return dnat.NATTo.String()
 }
+
+
+func (snat SNAT) KeyStringValue() string {
+	return snat.NATTo.String()
+}
+func (dnat DNAT) KeyStringValue() string {
+	return dnat.NATTo.String()
+}

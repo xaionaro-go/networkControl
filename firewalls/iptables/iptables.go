@@ -7,6 +7,7 @@ import (
 	ipt "github.com/coreos/go-iptables/iptables"
 	"github.com/xaionaro-go/go-ipset/ipset"
 	"github.com/xaionaro-go/networkControl"
+	"hash/crc32"
 	"net"
 	"os"
 	"strconv"
@@ -19,6 +20,7 @@ var (
 
 type iptables struct {
 	iptables              *ipt.IPTables
+	crc32q                *crc32.Table
 	isSameSecurityTraffic bool
 }
 
@@ -28,7 +30,10 @@ func NewFirewall() networkControl.FirewallI {
 		panic(err)
 	}
 
-	fw := &iptables{iptables: newIPT}
+	fw := &iptables{
+		iptables: newIPT,
+		crc32q:   crc32.MakeTable(0xD5828281),
+	}
 
 	fw.iptables.NewChain("filter", "ACLs")
 	fw.iptables.NewChain("filter", "SECURITY_LEVELs")
@@ -170,6 +175,16 @@ func (fw *iptables) SetSecurityLevel(ifName string, securityLevel int) error {
 	return nil
 }
 
+func (fw iptables) IfNameToIPTIfName(ifName string) string {
+	if len(ifName) < 15 {
+		return ifName
+	}
+
+	beginning := ifName[:6]
+	endingBinary := crc32.Checksum([]byte(ifName), fw.crc32q)
+	return fmt.Sprintf("%v%08x\n", beginning, endingBinary)
+}
+
 func (fw iptables) getACLsNames() (result []string) {
 	setNames, err := ipset.Names()
 	if err != nil {
@@ -177,6 +192,10 @@ func (fw iptables) getACLsNames() (result []string) {
 	}
 	// Searching for ACL.IN.###
 	for _, setName := range setNames {
+		if len(setName) == 0 {
+			continue
+		}
+
 		setNameWords := strings.Split(setName, ".")
 		if setNameWords[0] != "ACL" {
 			continue
@@ -202,6 +221,10 @@ func (fw iptables) inquireACL(aclName string) (result networkControl.ACL) {
 	}
 
 	for _, setRow := range setRows {
+		if len(setRow) == 0 {
+			continue
+		}
+
 		words := strings.Split(setRow, ",")
 		if words[0] != "0.0.0.0/0" {
 			panic("Internal error. words[0] == \"" + words[0] + "\"")
@@ -212,12 +235,22 @@ func (fw iptables) inquireACL(aclName string) (result networkControl.ACL) {
 
 	// Getting rules of the ACL
 
-	rules, err := fw.iptables.List("filter", "ACL.IN."+aclName)
+	chainName := "ACL.IN."+aclName
+
+	fw.iptables.NewChain("filter", chainName) // creating the chain if not exists (could happened on a dirty work before)
+	rules, err := fw.iptables.List("filter", chainName)
 	if err != nil {
 		panic(err)
 	}
 
 	for _, rule := range rules {
+		if strings.HasPrefix(rule, "-N ") {
+			continue
+		}
+		if !strings.HasPrefix(rule, "-A "+chainName+" ") {
+			panic(fmt.Errorf("Unexpected input: %v", rule))
+		}
+		rule = strings.Replace(rule, "-A "+chainName+" ", "", 1)
 		result.Rules = append(result.Rules, parseACLRule(rule))
 	}
 
@@ -246,11 +279,9 @@ func (fw iptables) InquireSNATs() (result networkControl.SNATs) {
 		source := networkControl.SNATSource{}
 		for len(words) > 0 {
 			switch words[0] {
-			case "-i":
-				source.IfName = words[1]
-				words = words[2:]
 			case "-m":
 				words = words[2:]
+
 			case "-s":
 				var err error
 				source.IPNet, err = networkControl.IPNetFromCIDRString(words[1])
@@ -258,6 +289,7 @@ func (fw iptables) InquireSNATs() (result networkControl.SNATs) {
 					panic(err)
 				}
 				words = words[2:]
+
 			case "--comment":
 				snatComment := snatCommentT{}
 				err := json.Unmarshal([]byte(words[1]), &snatComment)
@@ -265,13 +297,16 @@ func (fw iptables) InquireSNATs() (result networkControl.SNATs) {
 					panic(err)
 				}
 				snat.FWSMGlobalId = snatComment.FWSMGlobalId
+				source.IfName     = snatComment.IfName
 				words = words[2:]
+
 			case "-j":
 				if words[1] != "SNAT" || words[2] != "--to-source" {
 					panic("illegal rule: "+ruleString)
 				}
 				snat.NATTo = net.ParseIP(words[3])
 				words = words[4:]
+
 			default:
 				panic(fmt.Errorf("%v: %v: %v", errNotImplemented, words, ruleString))
 			}
@@ -296,8 +331,7 @@ func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
 		destination := networkControl.IPPort{}
 		for len(words) > 0 {
 			switch words[0] {
-			case "-o":
-				dnat.IfName = words[1]
+			case "-i":
 				words = words[2:]
 
 			case "-m":
@@ -325,6 +359,15 @@ func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
 				dnat.NATTo.Port = &portU16
 				words = words[2:]
 
+			case "--comment":
+				dnatComment := dnatCommentT{}
+				err := json.Unmarshal([]byte(words[1]), &dnatComment)
+				if err != nil {
+					panic(err)
+				}
+				dnat.IfName = dnatComment.IfName
+				words = words[2:]
+
 			case "-j":
 				if words[1] != "DNAT" || words[2] != "--to-destination" {
 					panic("illegal rule: "+ruleString)
@@ -349,7 +392,16 @@ func ruleToNetfilterRule(rule networkControl.ACLRule) (result []string) {
 		result = append(result, "-p", protocolString)
 	}
 
-	result = append(result, "-m", "multiport", "-s", rule.FromNet.String(), "--sports", portRangesToNetfilterPorts(rule.FromPortRanges), "-d", rule.ToNet.String(), "--dports", portRangesToNetfilterPorts(rule.ToPortRanges))
+	result = append(result, "-s", rule.FromNet.String(), "-d", rule.ToNet.String())
+
+	if len(rule.FromPortRanges) != 1 || len(rule.ToPortRanges) != 1 {
+		panic(fmt.Errorf("%v: %v, %v: %v", errNotImplemented, rule.FromPortRanges, rule.ToPortRanges, rule))
+	}
+
+	if rule.FromPortRanges[0].Start != 0 || rule.FromPortRanges[0].End != 65535 || rule.ToPortRanges[0].Start != 0 || rule.ToPortRanges[0].End != 65535 {
+		result = append(result, "-m", "multiport")
+		result = append(result, "--sports", portRangesToNetfilterPorts(rule.FromPortRanges), "--dports", portRangesToNetfilterPorts(rule.ToPortRanges))
+	}
 
 	var action string
 	switch rule.Action {
@@ -434,8 +486,18 @@ func parseACLRule(ruleString string) (rule networkControl.ACLRule) {
 		case "--dports":
 			rule.FromPortRanges = ParseNetfilterPortRanges(words[1])
 			words = words[2:]
+		case "-j":
+			switch words[1] {
+			case "ACCEPT":
+				rule.Action = networkControl.ACL_ALLOW
+			case "DROP", "REJECT":
+				rule.Action = networkControl.ACL_DENY
+			}
+			words = words[2:]
+		case "--reject-with":
+			words = words[2:]
 		default:
-			panic(errNotImplemented)
+			panic(fmt.Errorf("%v: %v: %v", errNotImplemented, words, ruleString))
 		}
 	}
 
@@ -479,8 +541,24 @@ func (fw *iptables) AddACL(acl networkControl.ACL) (err error) {
 	return fw.iptables.AppendUnique("filter", "ACLs", "-m", "set", "--match-set", setName, "src,src", "-j", chainName)
 }
 
+type dnatCommentT struct {
+	IfName string `json:",omitempty"`
+}
+
+func (c dnatCommentT) Json() string {
+	b, err := json.Marshal(c)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
+func (c dnatCommentT) String() string {
+	return c.Json()
+}
+
 type snatCommentT struct {
-	FWSMGlobalId int `json",omitempty"`
+	FWSMGlobalId int    `json:",omitempty"`
+	IfName       string `json:",omitempty"`
 }
 
 func (c snatCommentT) Json() string {
@@ -494,12 +572,17 @@ func (c snatCommentT) String() string {
 	return c.Json()
 }
 
+func (fw iptables) snatRuleStrings(snat networkControl.SNAT, source networkControl.SNATSource) []string {
+	snatComment := snatCommentT{
+		FWSMGlobalId: snat.FWSMGlobalId,
+		IfName:       source.IfName,
+	}
+	return []string{"-s", source.IPNet.String(), "-j", "SNAT", "--to-source", snat.NATTo.String(), "-m", "comment", "--comment", snatComment.Json()}
+}
+
 func (fw *iptables) AddSNAT(snat networkControl.SNAT) error {
 	for _, source := range snat.Sources {
-		snatComment := snatCommentT{
-			FWSMGlobalId: snat.FWSMGlobalId,
-		}
-		err := fw.iptables.AppendUnique("nat", "SNATs", "-o", source.IfName, "-s", source.IPNet.String(), "-j", "SNAT", "--to-source", snat.NATTo.String(), "-m", "comment", "--comment", snatComment.Json())
+		err := fw.iptables.AppendUnique("nat", "SNATs", fw.snatRuleStrings(snat, source)...)
 		if err != nil {
 			return err
 		}
@@ -507,23 +590,68 @@ func (fw *iptables) AddSNAT(snat networkControl.SNAT) error {
 	return nil
 }
 
-func ipportToNetfilterIPPort(ipport networkControl.IPPort, shouldAppendProto bool) string {
+func ipportToNetfilterIPPort(ipport networkControl.IPPort, isDst bool) (result []string) {
+	if isDst {
+		result = append(result, "-d")
+	} else {
+		result = append(result, "-s")
+	}
+	result = append(result, ipport.IP.String())
+
+	if ipport.Protocol != nil {
+		if ipport.Protocol.String() == "ip" {
+			ipport.Protocol = nil
+		}
+	}
+
+	if ipport.Port == nil && ipport.Protocol == nil {
+		return
+	}
+	if ipport.Port == nil || ipport.Protocol == nil {
+		panic(fmt.Errorf("This case is not implemented: %v %v: %v", ipport.Port, ipport.Protocol, ipport))
+	}
+	result = append(result, "-p", ipport.Protocol.String())
+	if isDst {
+		result = append(result, "--dport")
+	} else {
+		result = append(result, "--sport")
+	}
+	result = append(result, strconv.Itoa(int(*ipport.Port)))
+
+	return
+}
+
+func ipportToShortNetfilterIPPort(ipport networkControl.IPPort) string {
+	if ipport.Protocol != nil {
+		if ipport.Protocol.String() == "ip" {
+			ipport.Protocol = nil
+		}
+	}
+
 	if ipport.Port == nil && ipport.Protocol == nil {
 		return ipport.IP.String()
 	}
 	if ipport.Port == nil || ipport.Protocol == nil {
 		panic("This case is not implemented")
 	}
-	result := fmt.Sprintf("%v:%v", ipport.IP, *ipport.Port)
-	if shouldAppendProto {
-		result += " -p " + ipport.Protocol.String()
+	return fmt.Sprintf("%v:%v", ipport.IP, *ipport.Port)
+}
+
+func (fw iptables) dnatRuleStrings(dnat networkControl.DNAT, destination networkControl.IPPort) []string {
+	dnatComment := dnatCommentT{
+		IfName: dnat.IfName,
 	}
-	return result
+
+	rule := []string{"-i", fw.IfNameToIPTIfName(dnat.IfName)}
+	rule = append(rule, ipportToNetfilterIPPort(destination, true)...)
+	rule = append(rule, "-j", "DNAT", "--to-destination", ipportToShortNetfilterIPPort(dnat.NATTo), "-m", "comment", "--comment", dnatComment.Json())
+
+	return rule
 }
 
 func (fw *iptables) AddDNAT(dnat networkControl.DNAT) error {
 	for _, destination := range dnat.Destinations {
-		err := fw.iptables.AppendUnique("nat", "DNATs", "-i", dnat.IfName, "-d", ipportToNetfilterIPPort(destination, true), "-j", "DNAT", "--to-destination", ipportToNetfilterIPPort(dnat.NATTo, false))
+		err := fw.iptables.AppendUnique("nat", "DNATs", fw.dnatRuleStrings(dnat, destination)...)
 		if err != nil {
 			return err
 		}
@@ -531,12 +659,15 @@ func (fw *iptables) AddDNAT(dnat networkControl.DNAT) error {
 	return nil
 }
 func (fw *iptables) UpdateACL(acl networkControl.ACL) error {
+	panic(fmt.Errorf("%v: %v", errNotImplemented.Error(), acl))
 	return errNotImplemented
 }
 func (fw *iptables) UpdateSNAT(snat networkControl.SNAT) error {
+	panic(errNotImplemented)
 	return errNotImplemented
 }
 func (fw *iptables) UpdateDNAT(dnat networkControl.DNAT) error {
+	panic(errNotImplemented)
 	return errNotImplemented
 }
 func (fw *iptables) RemoveACL(acl networkControl.ACL) error {
@@ -568,10 +699,7 @@ func (fw *iptables) RemoveACL(acl networkControl.ACL) error {
 }
 func (fw *iptables) RemoveSNAT(snat networkControl.SNAT) error {
 	for _, source := range snat.Sources {
-		snatComment := snatCommentT{
-			FWSMGlobalId: snat.FWSMGlobalId,
-		}
-		err := fw.iptables.Delete("nat", "SNATs", "-o", source.IfName, "-s", source.IPNet.String(), "-j SNAT --to-source", snat.NATTo.String(), "-m", "comment", "--comment", snatComment.Json())
+		err := fw.iptables.Delete("nat", "SNATs", fw.snatRuleStrings(snat, source)...)
 		if err != nil {
 			return err
 		}
@@ -580,7 +708,7 @@ func (fw *iptables) RemoveSNAT(snat networkControl.SNAT) error {
 }
 func (fw *iptables) RemoveDNAT(dnat networkControl.DNAT) error {
 	for _, destination := range dnat.Destinations {
-		err := fw.iptables.Delete("nat", "DNATs", "-i", dnat.IfName, "-d", ipportToNetfilterIPPort(destination, true), "-j", "DNAT", "--to-destination", ipportToNetfilterIPPort(dnat.NATTo, false))
+		err := fw.iptables.Delete("nat", "DNATs", fw.dnatRuleStrings(dnat, destination)...)
 		if err != nil {
 			return err
 		}
