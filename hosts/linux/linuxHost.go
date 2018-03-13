@@ -11,6 +11,7 @@ import (
 	"github.com/xaionaro-go/netTree"
 	"github.com/xaionaro-go/networkControl"
 	"github.com/xaionaro-go/networkControl/firewalls/iptables"
+	"hash/crc32"
 	"io/ioutil"
 	"net"
 	"os"
@@ -38,6 +39,21 @@ type linuxHost struct {
 	accessDetails *AccessDetails
 	dhcpd         *iscDhcp.DHCP
 	netlink       *netlink.Handle
+	crc32q        *crc32.Table
+}
+
+
+func (host linuxHost) IfNameToLinuxIfName(ifName string) string {
+	if len(ifName) < 15 {
+		return ifName
+	}
+
+	beginning := ifName[:6]
+	endingBinary := crc32.Checksum([]byte(ifName), host.crc32q)
+	return fmt.Sprintf("%v%08x", beginning, endingBinary)
+}
+func (host linuxHost) IfNameToHostIfName(ifName string) string {
+	return host.IfNameToLinuxIfName(ifName)
 }
 
 func NewHost(accessDetails *AccessDetails) networkControl.HostI {
@@ -51,6 +67,7 @@ func NewHost(accessDetails *AccessDetails) networkControl.HostI {
 		accessDetailsCopy := *accessDetails
 		host.accessDetails = &accessDetailsCopy
 	}
+	host.crc32q = crc32.MakeTable(0xD5828281)
 	host.HostBase.SetFirewall(iptables.NewFirewall(&host))
 	host.dhcpd = iscDhcp.NewDHCP()
 	host.netlink, err = netlink.NewHandle()
@@ -81,7 +98,7 @@ func (host *linuxHost) AddVLAN(vlan networkControl.VLAN) error {
 		return err
 	}
 
-	bridgeLink := &netlink.Bridge{LinkAttrs: netlink.LinkAttrs{Name: vlan.Name}}
+	bridgeLink := &netlink.Bridge{LinkAttrs: netlink.LinkAttrs{Name: host.IfNameToHostIfName(vlan.Name)}}
 	if err := host.netlink.LinkAdd(bridgeLink); err != nil {
 		if err.Error() == "file exists" {
 			host.LogWarning(err)
@@ -111,7 +128,7 @@ func (host *linuxHost) AddVLAN(vlan networkControl.VLAN) error {
 		return err
 	}
 
-	err = host.GetFirewall().SetSecurityLevel(vlan.Name, vlan.SecurityLevel)
+	err = host.GetFirewall().SetSecurityLevel(host.IfNameToHostIfName(vlan.Name), vlan.SecurityLevel)
 	if err != nil {
 		host.LogError(err)
 		return err
@@ -359,7 +376,7 @@ func (host *linuxHost) RemoveRoute(route networkControl.Route) error {
 		panic(fmt.Sprintf("Not implemented, yet: %v", route))
 	}
 
-	_, err := exec.Command(fmt.Sprintf("ip route del %v via %v metric %v table fwsm", route.Destination, route.Gateway, route.Metric)).Output()
+	err := host.exec("ip", "route", "del", route.Destination, "via", route.Gateway, "metric", route.Metric, "table", "fwsm")
 	if err != nil {
 		host.LogError(err)
 		return err
@@ -376,35 +393,35 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 	for _, vlan := range stateDiff.Added.BridgedVLANs {
 		err := host.AddVLAN(*vlan)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *vlan)
 			return err
 		}
 	}
 	for _, acl := range stateDiff.Added.ACLs {
 		err := host.AddACL(*acl)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *acl)
 			return err
 		}
 	}
 	for _, snat := range stateDiff.Added.SNATs {
 		err := host.AddSNAT(*snat)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *snat)
 			return err
 		}
 	}
 	for _, dnat := range stateDiff.Added.DNATs {
 		err := host.AddDNAT(*dnat)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *dnat)
 			return err
 		}
 	}
 	for _, route := range stateDiff.Added.Routes {
 		err := host.AddRoute(*route)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *route)
 			return err
 		}
 	}
@@ -414,35 +431,35 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 	for _, vlan := range stateDiff.Updated.BridgedVLANs {
 		err := host.UpdateVLAN(*vlan)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *vlan)
 			return err
 		}
 	}
 	for _, acl := range stateDiff.Updated.ACLs {
 		err := host.UpdateACL(*acl)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *acl)
 			return err
 		}
 	}
 	for _, snat := range stateDiff.Updated.SNATs {
 		err := host.UpdateSNAT(*snat)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *snat)
 			return err
 		}
 	}
 	for _, dnat := range stateDiff.Updated.DNATs {
 		err := host.UpdateDNAT(*dnat)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *dnat)
 			return err
 		}
 	}
 	for _, route := range stateDiff.Updated.Routes {
 		err := host.UpdateRoute(*route)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *route)
 			return err
 		}
 	}
@@ -473,35 +490,35 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 	for _, vlan := range stateDiff.Removed.BridgedVLANs {
 		err := host.RemoveVLAN(*vlan)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *vlan)
 			return err
 		}
 	}
 	for _, acl := range stateDiff.Removed.ACLs {
 		err := host.RemoveACL(*acl)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *acl)
 			return err
 		}
 	}
 	for _, snat := range stateDiff.Removed.SNATs {
 		err := host.RemoveSNAT(*snat)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *snat)
 			return err
 		}
 	}
 	for _, dnat := range stateDiff.Removed.DNATs {
 		err := host.RemoveDNAT(*dnat)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *dnat)
 			return err
 		}
 	}
 	for _, route := range stateDiff.Removed.Routes {
 		err := host.RemoveRoute(*route)
 		if err != nil {
-			host.LogError(err)
+			host.LogError(err, *route)
 			return err
 		}
 	}
@@ -640,6 +657,7 @@ func (host *linuxHost) InquireRoutes() (result networkControl.Routes) {
 				route.Gateway, words = parseIP(words[1:])
 			case "dev":
 				route.IfName = words[1]
+				panic("shortened ifname is used for internal date. Fix it")
 				words = words[2:]
 			case "proto", "kernel", "scope", "link":
 				words = words[1:]

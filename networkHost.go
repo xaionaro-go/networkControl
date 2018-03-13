@@ -23,8 +23,14 @@ func (fw FirewallBase) Infof(fmt string, args ...interface{}) {
 func (fw FirewallBase) Errorf(fmt string, args ...interface{}) {
 	fw.GetHost().Errorf(fmt, args...)
 }
-func (fw FirewallBase) LogError(err error) {
-	fw.GetHost().LogError(err)
+func (fw FirewallBase) Panicf(fmt string, args ...interface{}) {
+	fw.GetHost().Panicf(fmt, args...)
+}
+func (fw FirewallBase) LogError(err error, ctx ...interface{}) {
+	fw.GetHost().LogError(err, ctx...)
+}
+func (fw FirewallBase) LogPanic(err error, ctx ...interface{}) {
+	fw.GetHost().LogPanic(err, ctx...)
 }
 func (fw FirewallBase) GetHost() HostI {
 	return fw.host
@@ -49,6 +55,7 @@ type HostBase struct {
 	loggerInfo    *log.Logger
 	loggerWarning *log.Logger
 	loggerError   *log.Logger
+	loggerPanic   *log.Logger
 }
 
 func (host *HostBase) SetParent(newParent HostI) error {
@@ -71,6 +78,9 @@ func (host *HostBase) SetLoggerWarning(newLogger *log.Logger) {
 }
 func (host *HostBase) SetLoggerError(newLogger *log.Logger) {
 	host.loggerError = newLogger
+}
+func (host *HostBase) SetLoggerPanic(newLogger *log.Logger) {
+	host.loggerPanic = newLogger
 }
 func (host HostBase) Debugf(fmt string, args ...interface{}) {
 	if host.loggerDebug == nil {
@@ -96,11 +106,20 @@ func (host HostBase) Errorf(fmt string, args ...interface{}) {
 	}
 	host.loggerError.Printf("[E] "+fmt, args...)
 }
-func (host HostBase) LogError(err error) {
-	host.Errorf("Got an error: %v", err.Error())
+func (host HostBase) Panicf(fmt string, args ...interface{}) {
+	if host.loggerPanic == nil {
+		return
+	}
+	host.loggerPanic.Printf("[P] "+fmt, args...)
 }
-func (host HostBase) LogWarning(err error) {
-	host.Warningf("Got an error: %v", err.Error())
+func (host HostBase) LogError(err error, ctx ...interface{}) {
+	host.Errorf("Got an error: %v [%v]", err.Error(), ctx)
+}
+func (host HostBase) LogWarning(err error, ctx ...interface{}) {
+	host.Warningf("Got an error: %v [%v]", err.Error(), ctx)
+}
+func (host HostBase) LogPanic(err error, ctx ...interface{}) {
+	host.Panicf("panic: %v [%v]", err.Error(), ctx)
 }
 
 func (host *HostBase) SetFirewall(newFirewall FirewallI) error {
@@ -166,6 +185,7 @@ type HostI interface {
 	GetFirewall() FirewallI
 
 	GetVLAN(vlanId int) VLAN
+	IfNameToHostIfName(string) string
 
 	SetNewState(newState State) error
 
@@ -185,13 +205,16 @@ type HostI interface {
 	SetLoggerInfo(*log.Logger)
 	SetLoggerWarning(*log.Logger)
 	SetLoggerError(*log.Logger)
+	SetLoggerPanic(*log.Logger)
 
 	Debugf(fmt string, args ...interface{})
 	Infof(fmt string, args ...interface{})
 	Warningf(fmt string, args ...interface{})
 	Errorf(fmt string, args ...interface{})
-	LogWarning(err error)
-	LogError(err error)
+	Panicf(fmt string, args ...interface{})
+	LogWarning(err error, ctx ...interface{})
+	LogError(err error, ctx ...interface{})
+	LogPanic(err error, ctx ...interface{})
 }
 
 type FirewallI interface {
@@ -262,10 +285,16 @@ func (hosts Hosts) Warningf(fmt string, args ...interface{}) {
 func (hosts Hosts) Errorf(fmt string, args ...interface{}) {
 	panic(errNotImplemented)
 }
-func (hosts Hosts) LogWarning(err error) {
+func (hosts Hosts) Panicf(fmt string, args ...interface{}) {
 	panic(errNotImplemented)
 }
-func (hosts Hosts) LogError(err error) {
+func (hosts Hosts) LogWarning(err error, ctx ...interface{}) {
+	panic(errNotImplemented)
+}
+func (hosts Hosts) LogError(err error, ctx ...interface{}) {
+	panic(errNotImplemented)
+}
+func (hosts Hosts) LogPanic(err error, ctx ...interface{}) {
 	panic(errNotImplemented)
 }
 
@@ -303,6 +332,12 @@ func (hosts Hosts) SetLoggerWarning(newLogger *log.Logger) {
 func (hosts Hosts) SetLoggerError(newLogger *log.Logger) {
 	for _, host := range hosts {
 		host.SetLoggerError(newLogger)
+	}
+	return
+}
+func (hosts Hosts) SetLoggerPanic(newLogger *log.Logger) {
+	for _, host := range hosts {
+		host.SetLoggerPanic(newLogger)
 	}
 	return
 }
@@ -395,6 +430,9 @@ func (hosts Hosts) RescanState() error {
 		}
 	}
 	return nil
+}
+func (hosts Hosts) IfNameToHostIfName(string) string {
+	panic(errNotImplemented)
 }
 
 func (firewalls Firewalls) InquireSecurityLevel(string) int {

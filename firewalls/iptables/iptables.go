@@ -7,7 +7,6 @@ import (
 	ipt "github.com/coreos/go-iptables/iptables"
 	"github.com/xaionaro-go/go-ipset/ipset"
 	"github.com/xaionaro-go/networkControl"
-	"hash/crc32"
 	"net"
 	"os"
 	"strconv"
@@ -21,7 +20,6 @@ var (
 type iptables struct {
 	networkControl.FirewallBase
 	iptables              *ipt.IPTables
-	crc32q                *crc32.Table
 	isSameSecurityTraffic bool
 }
 
@@ -33,7 +31,6 @@ func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
 
 	fw := &iptables{
 		iptables: newIPT,
-		crc32q:   crc32.MakeTable(0xD5828281),
 	}
 
 	fw.SetHost(host)
@@ -78,10 +75,13 @@ func (fw iptables) InquireSecurityLevel(ifName string) int {
 		}
 
 		for _, row := range rows {
-			if len(row) == 0 {
+			if len(row) == 0 || strings.HasPrefix(row, " ") {
 				continue
 			}
 			words := strings.Split(row, ",")
+			if len(words) < 2 {
+				fw.LogPanic(fmt.Errorf("len(words) < 2"), setName, words)
+			}
 			if words[1] == ifName {
 				return securityLevel
 			}
@@ -184,13 +184,7 @@ func (fw *iptables) SetSecurityLevel(ifName string, securityLevel int) error {
 }
 
 func (fw iptables) IfNameToIPTIfName(ifName string) string {
-	if len(ifName) < 15 {
-		return ifName
-	}
-
-	beginning := ifName[:6]
-	endingBinary := crc32.Checksum([]byte(ifName), fw.crc32q)
-	return fmt.Sprintf("%v%08x\n", beginning, endingBinary)
+	return fw.GetHost().IfNameToHostIfName(ifName)
 }
 
 func (fw iptables) getACLsNames() (result []string) {
