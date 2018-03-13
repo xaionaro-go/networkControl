@@ -51,7 +51,7 @@ func NewHost(accessDetails *AccessDetails) networkControl.HostI {
 		accessDetailsCopy := *accessDetails
 		host.accessDetails = &accessDetailsCopy
 	}
-	host.HostBase.SetFirewall(iptables.NewFirewall())
+	host.HostBase.SetFirewall(iptables.NewFirewall(&host))
 	host.dhcpd = iscDhcp.NewDHCP()
 	host.netlink, err = netlink.NewHandle()
 	if err != nil {
@@ -77,39 +77,47 @@ func (host *linuxHost) AddVLAN(vlan networkControl.VLAN) error {
 
 	trunk, err := host.getTrunkLink()
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 
 	bridgeLink := &netlink.Bridge{LinkAttrs: netlink.LinkAttrs{Name: vlan.Name}}
 	if err := host.netlink.LinkAdd(bridgeLink); err != nil {
+		host.LogError(err)
 		return err
 	}
 
 	if err := host.netlink.LinkSetUp(bridgeLink); err != nil {
+		host.LogError(err)
 		return err
 	}
 
 	vlanLink := &netlink.Vlan{netlink.LinkAttrs{Name: "trunk." + strconv.Itoa(vlan.VlanId), ParentIndex: trunk.Attrs().Index}, vlan.VlanId}
 	if err := host.netlink.LinkAdd(vlanLink); err != nil {
+		host.LogError(err)
 		return err
 	}
 
 	if err := host.netlink.LinkSetMaster(vlanLink, bridgeLink); err != nil {
+		host.LogError(err)
 		return err
 	}
 
 	err = host.GetFirewall().SetSecurityLevel(vlan.Name, vlan.SecurityLevel)
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 
 	for _, ip := range vlan.IPs {
 		addr, err := netlink.ParseAddr(ip.String())
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 		err = host.netlink.AddrAdd(bridgeLink, addr)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
@@ -160,6 +168,7 @@ func (host *linuxHost) AddRoute(route networkControl.Route) error {
 
 	err := host.exec("ip", "route", "add", route.Destination, "via", route.Gateway, "metric", route.Metric, "table", "fwsm")
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 
@@ -184,6 +193,7 @@ func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
 	if oldVlan.SecurityLevel != vlan.SecurityLevel {
 		err := host.GetFirewall().SetSecurityLevel(vlan.Name, vlan.SecurityLevel)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
@@ -218,10 +228,12 @@ func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
 
 	bridgeLink, err := host.netlink.LinkByName(vlan.Name)
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 	curAddrs, err := host.netlink.AddrList(bridgeLink, netlink.FAMILY_V4)
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 	curAddrMap := map[string]*netlink.Addr{}
@@ -240,6 +252,7 @@ func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
 
 		err := host.netlink.AddrDel(bridgeLink, addr)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
@@ -247,11 +260,13 @@ func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
 	for _, ip := range addIPs {
 		addr, err := netlink.ParseAddr(ip.String())
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 
 		err = host.netlink.AddrAdd(bridgeLink, addr)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
@@ -283,22 +298,26 @@ func (host *linuxHost) RemoveVLAN(vlan networkControl.VLAN) error {
 
 	vlanLink, err := host.netlink.LinkByName("trunk." + strconv.Itoa(vlan.VlanId))
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 
 	bridgeLink, err := host.netlink.LinkByName(vlan.Name)
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 
 	err = host.netlink.LinkDel(vlanLink)
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 
 	host.netlink.LinkSetDown(bridgeLink)
 	err = host.netlink.LinkDel(bridgeLink)
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 
@@ -330,6 +349,7 @@ func (host *linuxHost) RemoveRoute(route networkControl.Route) error {
 
 	_, err := exec.Command(fmt.Sprintf("ip route del %v via %v metric %v table fwsm", route.Destination, route.Gateway, route.Metric)).Output()
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 
@@ -344,30 +364,35 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 	for _, vlan := range stateDiff.Added.BridgedVLANs {
 		err := host.AddVLAN(*vlan)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
 	for _, acl := range stateDiff.Added.ACLs {
 		err := host.AddACL(*acl)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
 	for _, snat := range stateDiff.Added.SNATs {
 		err := host.AddSNAT(*snat)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
 	for _, dnat := range stateDiff.Added.DNATs {
 		err := host.AddDNAT(*dnat)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
 	for _, route := range stateDiff.Added.Routes {
 		err := host.AddRoute(*route)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
@@ -377,30 +402,35 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 	for _, vlan := range stateDiff.Updated.BridgedVLANs {
 		err := host.UpdateVLAN(*vlan)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
 	for _, acl := range stateDiff.Updated.ACLs {
 		err := host.UpdateACL(*acl)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
 	for _, snat := range stateDiff.Updated.SNATs {
 		err := host.UpdateSNAT(*snat)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
 	for _, dnat := range stateDiff.Updated.DNATs {
 		err := host.UpdateDNAT(*dnat)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
 	for _, route := range stateDiff.Updated.Routes {
 		err := host.UpdateRoute(*route)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
@@ -412,6 +442,7 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 	host.SetDHCPState(stateDiff.Updated.DHCP)
 	err = host.dhcpd.Restart()
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 
@@ -419,6 +450,7 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 	host.SetDHCPState(oldDHCPState)
 	err = host.dhcpd.SaveConfig()
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 	// And the running state should be new in our information
@@ -429,30 +461,35 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 	for _, vlan := range stateDiff.Removed.BridgedVLANs {
 		err := host.RemoveVLAN(*vlan)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
 	for _, acl := range stateDiff.Removed.ACLs {
 		err := host.RemoveACL(*acl)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
 	for _, snat := range stateDiff.Removed.SNATs {
 		err := host.RemoveSNAT(*snat)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
 	for _, dnat := range stateDiff.Removed.DNATs {
 		err := host.RemoveDNAT(*dnat)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
 	for _, route := range stateDiff.Removed.Routes {
 		err := host.RemoveRoute(*route)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
@@ -645,6 +682,7 @@ func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian
 		netConfigJson, _ := json.Marshal(netConfig)
 		err = ioutil.WriteFile("/etc/fwsm-net.json", netConfigJson, 0644)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
@@ -654,6 +692,7 @@ func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian
 	host.SetDHCPState(host.States.Cur.DHCP)
 	err = host.dhcpd.SaveConfig()
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 
@@ -661,6 +700,7 @@ func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian
 
 	_, err = exec.Command("sh", "-c", "iptables-save > /etc/iptables/fwsm.rules").Output()
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 
@@ -668,6 +708,7 @@ func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian
 
 	_, err = exec.Command("ipset", "save", "-file", "/etc/ipset-fwsm.dump").Output()
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 
@@ -682,17 +723,20 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 	if _, err := os.Stat("/etc/fwsm-net.json"); err == nil {
 		plan, err := ioutil.ReadFile("/etc/fwsm-net.json")
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 		netConfig := netConfigT{}
 		err = json.Unmarshal(plan, &netConfig)
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 		host.States.New.BridgedVLANs = netConfig.VLANs
 		host.States.New.Routes = netConfig.Routes
 		err = host.Apply()
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
@@ -702,6 +746,7 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 	if _, err := os.Stat("/etc/ipset-fwsm.dump"); err == nil {
 		_, err := exec.Command("ipset", "restore", "-file", "/etc/ipset-fwsm.dump").Output()
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}
@@ -711,6 +756,7 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 	host.SetDHCPState(host.States.Cur.DHCP)
 	err := host.dhcpd.SaveConfig()
 	if err != nil {
+		host.LogError(err)
 		return err
 	}
 
@@ -719,6 +765,7 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 	if _, err := os.Stat("/etc/ipset-fwsm.dump"); err == nil {
 		_, err := exec.Command("iptables-restore", "/etc/ipset-fwsm.dump").Output()
 		if err != nil {
+			host.LogError(err)
 			return err
 		}
 	}

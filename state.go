@@ -14,7 +14,31 @@ type State struct {
 	Routes       Routes
 }
 
-func setDiffByOneField(diff *StateDiff, newState State, oldState State, paramName string) {
+type setSlicer interface {
+	SetSliceI(interface{})
+}
+
+func setDiffMapByOneField(diff *StateDiff, newState State, oldState State, paramName string) {
+	newStateV := reflect.ValueOf(newState)
+	oldStateV := reflect.ValueOf(oldState)
+
+	map0 := newStateV.FieldByName(paramName)
+	map1 := oldStateV.FieldByName(paramName)
+
+	slice0 := reflect.ValueOf(handySlices.MapToSlice(map0.Interface()))
+	slice1 := reflect.ValueOf(handySlices.MapToSlice(map1.Interface()))
+
+	added := handySlices.GetSubtraction(slice0.Interface(), slice1.Interface())
+	reflect.ValueOf(&diff.Added).Elem().FieldByName(paramName).Addr().Interface().(setSlicer).SetSliceI(added)
+
+	removed := handySlices.GetSubtraction(slice1.Interface(), slice0.Interface())
+	reflect.ValueOf(&diff.Removed).Elem().FieldByName(paramName).Addr().Interface().(setSlicer).SetSliceI(removed)
+
+	updated := handySlices.GetDiffedIntersection(slice0.Interface(), slice1.Interface())
+	reflect.ValueOf(&diff.Updated).Elem().FieldByName(paramName).Addr().Interface().(setSlicer).SetSliceI(updated)
+}
+
+func setDiffSliceByOneField(diff *StateDiff, newState State, oldState State, paramName string) {
 	newStateV := reflect.ValueOf(newState)
 	oldStateV := reflect.ValueOf(oldState)
 
@@ -34,10 +58,12 @@ func setDiffByOneField(diff *StateDiff, newState State, oldState State, paramNam
 func (newState State) Diff(oldState State) (diff StateDiff) {
 	stateV := reflect.ValueOf(oldState)
 	for i := 0; i < stateV.NumField(); i++ { // foreach all slice fields
-		if stateV.Field(i).Kind() != reflect.Slice {
-			continue
+		switch stateV.Field(i).Kind() {
+		case reflect.Map:
+			setDiffMapByOneField(&diff, newState, oldState, stateV.Type().Field(i).Name)
+		case reflect.Slice:
+			setDiffSliceByOneField(&diff, newState, oldState, stateV.Type().Field(i).Name)
 		}
-		setDiffByOneField(&diff, newState, oldState, stateV.Type().Field(i).Name)
 	}
 
 	diff.Updated.DHCP = newState.DHCP

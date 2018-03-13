@@ -19,12 +19,13 @@ var (
 )
 
 type iptables struct {
+	networkControl.FirewallBase
 	iptables              *ipt.IPTables
 	crc32q                *crc32.Table
 	isSameSecurityTraffic bool
 }
 
-func NewFirewall() networkControl.FirewallI {
+func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
 	newIPT, err := ipt.New()
 	if err != nil {
 		panic(err)
@@ -34,6 +35,8 @@ func NewFirewall() networkControl.FirewallI {
 		iptables: newIPT,
 		crc32q:   crc32.MakeTable(0xD5828281),
 	}
+
+	fw.SetHost(host)
 
 	fw.iptables.NewChain("filter", "ACLs")
 	fw.iptables.NewChain("filter", "SECURITY_LEVELs")
@@ -75,6 +78,9 @@ func (fw iptables) InquireSecurityLevel(ifName string) int {
 		}
 
 		for _, row := range rows {
+			if len(row) == 0 {
+				continue
+			}
 			words := strings.Split(row, ",")
 			if words[1] == ifName {
 				return securityLevel
@@ -143,6 +149,7 @@ func (fw *iptables) addSecurityLevel(securityLevel int) error {
 	setName := "IFACES.SECURITY_LEVEL." + strconv.Itoa(securityLevel)
 	_, err := ipset.New(setName, "hash:net,iface", &ipset.Params{})
 	if err != nil {
+		fw.LogError(err)
 		return err
 	}
 
@@ -165,6 +172,7 @@ func (fw *iptables) SetSecurityLevel(ifName string, securityLevel int) error {
 
 	err := ipset.Add(setName, "0.0.0.0/0,"+ifName, 0)
 	if err != nil {
+		fw.LogError(err)
 		return err
 	}
 
@@ -527,6 +535,7 @@ func (fw *iptables) AddACL(acl networkControl.ACL) (err error) {
 
 	err = fw.iptables.NewChain("filter", chainName)
 	if err != nil {
+		fw.LogError(err)
 		return err
 	}
 	for _, rule := range acl.Rules {
@@ -584,6 +593,7 @@ func (fw *iptables) AddSNAT(snat networkControl.SNAT) error {
 	for _, source := range snat.Sources {
 		err := fw.iptables.AppendUnique("nat", "SNATs", fw.snatRuleStrings(snat, source)...)
 		if err != nil {
+			fw.LogError(err)
 			return err
 		}
 	}
@@ -653,6 +663,7 @@ func (fw *iptables) AddDNAT(dnat networkControl.DNAT) error {
 	for _, destination := range dnat.Destinations {
 		err := fw.iptables.AppendUnique("nat", "DNATs", fw.dnatRuleStrings(dnat, destination)...)
 		if err != nil {
+			fw.LogError(err)
 			return err
 		}
 	}
@@ -679,6 +690,7 @@ func (fw *iptables) RemoveACL(acl networkControl.ACL) error {
 
 	err := fw.iptables.Delete("filter", "ACLs", "-m", "set", "--match-set", setName, "src,src", "-j", chainName)
 	if err != nil {
+		fw.LogError(err)
 		return err
 	}
 
@@ -686,10 +698,12 @@ func (fw *iptables) RemoveACL(acl networkControl.ACL) error {
 
 	err = fw.iptables.ClearChain("filter", chainName)
 	if err != nil {
+		fw.LogError(err)
 		return err
 	}
 	err = fw.iptables.DeleteChain("filter", chainName)
 	if err != nil {
+		fw.LogError(err)
 		return err
 	}
 
@@ -701,6 +715,7 @@ func (fw *iptables) RemoveSNAT(snat networkControl.SNAT) error {
 	for _, source := range snat.Sources {
 		err := fw.iptables.Delete("nat", "SNATs", fw.snatRuleStrings(snat, source)...)
 		if err != nil {
+			fw.LogError(err)
 			return err
 		}
 	}
@@ -710,6 +725,7 @@ func (fw *iptables) RemoveDNAT(dnat networkControl.DNAT) error {
 	for _, destination := range dnat.Destinations {
 		err := fw.iptables.Delete("nat", "DNATs", fw.dnatRuleStrings(dnat, destination)...)
 		if err != nil {
+			fw.LogError(err)
 			return err
 		}
 	}

@@ -10,6 +10,36 @@ type States struct {
 	Cur State
 }
 
+type FirewallBase struct {
+	host HostI
+}
+
+func (fw FirewallBase) Debugf(fmt string, args ...interface{}) {
+	fw.GetHost().Debugf(fmt, args...)
+}
+func (fw FirewallBase) Infof(fmt string, args ...interface{}) {
+	fw.GetHost().Infof(fmt, args...)
+}
+func (fw FirewallBase) Errorf(fmt string, args ...interface{}) {
+	fw.GetHost().Errorf(fmt, args...)
+}
+func (fw FirewallBase) LogError(err error) {
+	fw.GetHost().LogError(err)
+}
+func (fw FirewallBase) GetHost() HostI {
+	return fw.host
+}
+
+func (fw *FirewallBase) SetHost(host HostI) error {
+	if fw.host != nil {
+		panic(errNotImplemented)
+		return errNotImplemented
+	}
+
+	fw.host = host
+	return nil
+}
+
 type HostBase struct {
 	parent      HostI
 	firewall    FirewallI
@@ -47,13 +77,16 @@ func (host HostBase) Infof(fmt string, args ...interface{}) {
 	if host.loggerInfo == nil {
 		return
 	}
-	host.loggerInfo.Printf("[E] "+fmt, args...)
+	host.loggerInfo.Printf("[I] "+fmt, args...)
 }
 func (host HostBase) Errorf(fmt string, args ...interface{}) {
 	if host.loggerError == nil {
 		return
 	}
 	host.loggerError.Printf("[E] "+fmt, args...)
+}
+func (host HostBase) LogError(err error) {
+	host.Errorf("Got an error: %v", err.Error())
 }
 
 func (host *HostBase) SetFirewall(newFirewall FirewallI) error {
@@ -137,6 +170,11 @@ type HostI interface {
 	SetLoggerDebug(*log.Logger)
 	SetLoggerInfo(*log.Logger)
 	SetLoggerError(*log.Logger)
+
+	Debugf(fmt string, args ...interface{})
+	Infof(fmt string, args ...interface{})
+	Errorf(fmt string, args ...interface{})
+	LogError(err error)
 }
 
 type FirewallI interface {
@@ -194,6 +232,19 @@ func (hosts Hosts) RemoveBridgedVLAN(vlanId int) error {
 }
 
 type Firewalls []FirewallI
+
+func (hosts Hosts) Debugf(fmt string, args ...interface{}) {
+	panic(errNotImplemented)
+}
+func (hosts Hosts) Infof(fmt string, args ...interface{}) {
+	panic(errNotImplemented)
+}
+func (hosts Hosts) Errorf(fmt string, args ...interface{}) {
+	panic(errNotImplemented)
+}
+func (hosts Hosts) LogError(err error) {
+	panic(errNotImplemented)
+}
 
 func (hosts Hosts) GetFirewall() FirewallI {
 	firewalls := Firewalls{}
