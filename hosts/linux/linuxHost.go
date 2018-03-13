@@ -83,8 +83,12 @@ func (host *linuxHost) AddVLAN(vlan networkControl.VLAN) error {
 
 	bridgeLink := &netlink.Bridge{LinkAttrs: netlink.LinkAttrs{Name: vlan.Name}}
 	if err := host.netlink.LinkAdd(bridgeLink); err != nil {
-		host.LogError(err)
-		return err
+		if err.Error() == "file exists" {
+			host.LogWarning(err)
+		} else {
+			host.LogError(err)
+			return err
+		}
 	}
 
 	if err := host.netlink.LinkSetUp(bridgeLink); err != nil {
@@ -94,8 +98,12 @@ func (host *linuxHost) AddVLAN(vlan networkControl.VLAN) error {
 
 	vlanLink := &netlink.Vlan{netlink.LinkAttrs{Name: "trunk." + strconv.Itoa(vlan.VlanId), ParentIndex: trunk.Attrs().Index}, vlan.VlanId}
 	if err := host.netlink.LinkAdd(vlanLink); err != nil {
-		host.LogError(err)
-		return err
+		if err.Error() == "file exists" {
+			host.LogWarning(err)
+		} else {
+			host.LogError(err)
+			return err
+		}
 	}
 
 	if err := host.netlink.LinkSetMaster(vlanLink, bridgeLink); err != nil {
@@ -117,8 +125,12 @@ func (host *linuxHost) AddVLAN(vlan networkControl.VLAN) error {
 		}
 		err = host.netlink.AddrAdd(bridgeLink, addr)
 		if err != nil {
-			host.LogError(err)
-			return err
+			if err.Error() == "file exists" {
+				host.LogWarning(err)
+			} else {
+				host.LogError(err)
+				return err
+			}
 		}
 	}
 

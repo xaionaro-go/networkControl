@@ -41,12 +41,14 @@ func (fw *FirewallBase) SetHost(host HostI) error {
 }
 
 type HostBase struct {
-	parent      HostI
-	firewall    FirewallI
-	States      States
-	loggerDebug *log.Logger
-	loggerInfo  *log.Logger
-	loggerError *log.Logger
+	parent   HostI
+	firewall FirewallI
+	States   States
+
+	loggerDebug   *log.Logger
+	loggerInfo    *log.Logger
+	loggerWarning *log.Logger
+	loggerError   *log.Logger
 }
 
 func (host *HostBase) SetParent(newParent HostI) error {
@@ -64,6 +66,9 @@ func (host *HostBase) SetLoggerDebug(newLogger *log.Logger) {
 func (host *HostBase) SetLoggerInfo(newLogger *log.Logger) {
 	host.loggerInfo = newLogger
 }
+func (host *HostBase) SetLoggerWarning(newLogger *log.Logger) {
+	host.loggerWarning = newLogger
+}
 func (host *HostBase) SetLoggerError(newLogger *log.Logger) {
 	host.loggerError = newLogger
 }
@@ -79,6 +84,12 @@ func (host HostBase) Infof(fmt string, args ...interface{}) {
 	}
 	host.loggerInfo.Printf("[I] "+fmt, args...)
 }
+func (host HostBase) Warningf(fmt string, args ...interface{}) {
+	if host.loggerWarning == nil {
+		return
+	}
+	host.loggerWarning.Printf("[W] "+fmt, args...)
+}
 func (host HostBase) Errorf(fmt string, args ...interface{}) {
 	if host.loggerError == nil {
 		return
@@ -87,6 +98,9 @@ func (host HostBase) Errorf(fmt string, args ...interface{}) {
 }
 func (host HostBase) LogError(err error) {
 	host.Errorf("Got an error: %v", err.Error())
+}
+func (host HostBase) LogWarning(err error) {
+	host.Warningf("Got an error: %v", err.Error())
 }
 
 func (host *HostBase) SetFirewall(newFirewall FirewallI) error {
@@ -169,11 +183,14 @@ type HostI interface {
 
 	SetLoggerDebug(*log.Logger)
 	SetLoggerInfo(*log.Logger)
+	SetLoggerWarning(*log.Logger)
 	SetLoggerError(*log.Logger)
 
 	Debugf(fmt string, args ...interface{})
 	Infof(fmt string, args ...interface{})
+	Warningf(fmt string, args ...interface{})
 	Errorf(fmt string, args ...interface{})
+	LogWarning(err error)
 	LogError(err error)
 }
 
@@ -239,7 +256,13 @@ func (hosts Hosts) Debugf(fmt string, args ...interface{}) {
 func (hosts Hosts) Infof(fmt string, args ...interface{}) {
 	panic(errNotImplemented)
 }
+func (hosts Hosts) Warningf(fmt string, args ...interface{}) {
+	panic(errNotImplemented)
+}
 func (hosts Hosts) Errorf(fmt string, args ...interface{}) {
+	panic(errNotImplemented)
+}
+func (hosts Hosts) LogWarning(err error) {
 	panic(errNotImplemented)
 }
 func (hosts Hosts) LogError(err error) {
@@ -268,6 +291,12 @@ func (hosts Hosts) SetLoggerDebug(newLogger *log.Logger) {
 func (hosts Hosts) SetLoggerInfo(newLogger *log.Logger) {
 	for _, host := range hosts {
 		host.SetLoggerInfo(newLogger)
+	}
+	return
+}
+func (hosts Hosts) SetLoggerWarning(newLogger *log.Logger) {
+	for _, host := range hosts {
+		host.SetLoggerWarning(newLogger)
 	}
 	return
 }
