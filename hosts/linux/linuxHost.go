@@ -1,6 +1,7 @@
 package linuxHost
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,6 +73,7 @@ func (host *linuxHost) AddVLAN(vlan networkControl.VLAN) error {
 	if host.accessDetails != nil {
 		panic(errNotImplemented)
 	}
+	host.Debugf("AddVLAN: %v", vlan)
 
 	trunk, err := host.getTrunkLink()
 	if err != nil {
@@ -127,6 +129,26 @@ func (host *linuxHost) AddDNAT(dnat networkControl.DNAT) error {
 	return host.GetFirewall().AddDNAT(dnat)
 }
 
+func (host *linuxHost) exec(command ...interface{}) error {
+	commandStr := []string{}
+	for _, word := range command {
+		commandStr = append(commandStr, fmt.Sprintf("%v", word))
+	}
+
+	cmd := exec.Command(commandStr[0], commandStr[1:]...)
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		host.Errorf("Got an error while execution of %v: %v\nstdout: %v\nstderr: %v", commandStr, err, out.String(), stderr.String())
+		return err
+	}
+
+	return nil
+}
+
 func (host *linuxHost) AddRoute(route networkControl.Route) error {
 	if len(route.Sources) != 1 {
 		panic(fmt.Sprintf("Not implemented, yet: %v", route))
@@ -136,7 +158,7 @@ func (host *linuxHost) AddRoute(route networkControl.Route) error {
 		panic(fmt.Sprintf("Not implemented, yet: %v", route))
 	}
 
-	_, err := exec.Command(fmt.Sprintf("ip route add %v via %v metric %v table fwsm", route.Destination, route.Gateway, route.Metric)).Output()
+	err := host.exec("ip", "route", "add", route.Destination, "via", route.Gateway, "metric", route.Metric, "table", "fwsm")
 	if err != nil {
 		return err
 	}
@@ -318,6 +340,7 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 
 	// Adding
 
+	//host.Infof("ApplyDiff.Added.BridgedVLANs: %v", stateDiff.Added.BridgedVLANs)
 	for _, vlan := range stateDiff.Added.BridgedVLANs {
 		err := host.AddVLAN(*vlan)
 		if err != nil {
@@ -617,7 +640,7 @@ func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian
 
 	{
 		netConfig := netConfigT{}
-		netConfig.VLANs  = host.States.Cur.BridgedVLANs
+		netConfig.VLANs = host.States.Cur.BridgedVLANs
 		netConfig.Routes = host.States.Cur.Routes
 		netConfigJson, _ := json.Marshal(netConfig)
 		err = ioutil.WriteFile("/etc/fwsm-net.json", netConfigJson, 0644)
@@ -667,7 +690,7 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 			return err
 		}
 		host.States.New.BridgedVLANs = netConfig.VLANs
-		host.States.New.Routes       = netConfig.Routes
+		host.States.New.Routes = netConfig.Routes
 		err = host.Apply()
 		if err != nil {
 			return err

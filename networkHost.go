@@ -1,6 +1,8 @@
 package networkControl
 
-import ()
+import (
+	"log"
+)
 
 type States struct {
 	Old State
@@ -9,9 +11,12 @@ type States struct {
 }
 
 type HostBase struct {
-	parent   HostI
-	firewall FirewallI
-	States   States
+	parent      HostI
+	firewall    FirewallI
+	States      States
+	loggerDebug *log.Logger
+	loggerInfo  *log.Logger
+	loggerError *log.Logger
 }
 
 func (host *HostBase) SetParent(newParent HostI) error {
@@ -23,6 +28,34 @@ func (host *HostBase) SetParent(newParent HostI) error {
 	host.parent = newParent
 	return nil
 }
+func (host *HostBase) SetLoggerDebug(newLogger *log.Logger) {
+	host.loggerError = newLogger
+}
+func (host *HostBase) SetLoggerInfo(newLogger *log.Logger) {
+	host.loggerInfo = newLogger
+}
+func (host *HostBase) SetLoggerError(newLogger *log.Logger) {
+	host.loggerError = newLogger
+}
+func (host HostBase) Debugf(fmt string, args ...interface{}) {
+	if host.loggerDebug == nil {
+		return
+	}
+	host.loggerDebug.Printf("[D] "+fmt, args...)
+}
+func (host HostBase) Infof(fmt string, args ...interface{}) {
+	if host.loggerInfo == nil {
+		return
+	}
+	host.loggerInfo.Printf("[E] "+fmt, args...)
+}
+func (host HostBase) Errorf(fmt string, args ...interface{}) {
+	if host.loggerError == nil {
+		return
+	}
+	host.loggerError.Printf("[E] "+fmt, args...)
+}
+
 func (host *HostBase) SetFirewall(newFirewall FirewallI) error {
 	host.firewall = newFirewall
 	return nil
@@ -100,6 +133,10 @@ type HostI interface {
 
 	ApplyDiff(StateDiff) error
 	RescanState() error
+
+	SetLoggerDebug(*log.Logger)
+	SetLoggerInfo(*log.Logger)
+	SetLoggerError(*log.Logger)
 }
 
 type FirewallI interface {
@@ -170,6 +207,24 @@ func (hosts Hosts) GetFirewall() FirewallI {
 func (hosts Hosts) GetVLAN(vlanId int) VLAN {
 	panic(errNotImplemented)
 	return VLAN{}
+}
+func (hosts Hosts) SetLoggerDebug(newLogger *log.Logger) {
+	for _, host := range hosts {
+		host.SetLoggerDebug(newLogger)
+	}
+	return
+}
+func (hosts Hosts) SetLoggerInfo(newLogger *log.Logger) {
+	for _, host := range hosts {
+		host.SetLoggerInfo(newLogger)
+	}
+	return
+}
+func (hosts Hosts) SetLoggerError(newLogger *log.Logger) {
+	for _, host := range hosts {
+		host.SetLoggerError(newLogger)
+	}
+	return
 }
 func (hosts Hosts) SetNewState(newState State) error {
 	for _, host := range hosts {

@@ -44,4 +44,3 @@ func (a ACLs) Less(i, j int) bool { return a[i].Name < a[j].Name }
 func (acl ACL) KeyStringValue() string {
 	return acl.Name
 }
-

@@ -48,7 +48,6 @@ func (dnat DNAT) GetPos() string {
 	return dnat.NATTo.String()
 }
 
-
 func (snat SNAT) KeyStringValue() string {
 	return snat.NATTo.String()
 }
