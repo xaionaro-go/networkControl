@@ -26,6 +26,9 @@ func (fw FirewallBase) Errorf(fmt string, args ...interface{}) {
 func (fw FirewallBase) Panicf(fmt string, args ...interface{}) {
 	fw.GetHost().Panicf(fmt, args...)
 }
+func (fw FirewallBase) LogWarning(err error, ctx ...interface{}) {
+	fw.GetHost().LogWarning(err, ctx...)
+}
 func (fw FirewallBase) LogError(err error, ctx ...interface{}) {
 	fw.GetHost().LogError(err, ctx...)
 }
@@ -186,6 +189,7 @@ type HostI interface {
 
 	GetVLAN(vlanId int) VLAN
 	IfNameToHostIfName(string) string
+	HostIfNameToIfName(string) string
 
 	SetNewState(newState State) error
 
@@ -434,7 +438,9 @@ func (hosts Hosts) RescanState() error {
 func (hosts Hosts) IfNameToHostIfName(string) string {
 	panic(errNotImplemented)
 }
-
+func (hosts Hosts) HostIfNameToIfName(string) string {
+	panic(errNotImplemented)
+}
 func (firewalls Firewalls) InquireSecurityLevel(string) int {
 	panic(errNotImplemented)
 	return -1

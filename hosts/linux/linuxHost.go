@@ -22,6 +22,8 @@ import (
 
 var (
 	errNotImplemented = errors.New("not implemented (yet?)")
+	errIfNameCollision = errors.New("Got a collision of backend interface names. It's an internal error caused by a limit in 15 characters for linux network interface names. You can change crc32q value in linuxHost.go to bypass the problem.")
+	errUnknownIfName = errors.New("Unknown interface in the backend. Cannot convert back to the real interface name")
 )
 
 const (
@@ -40,20 +42,40 @@ type linuxHost struct {
 	dhcpd         *iscDhcp.DHCP
 	netlink       *netlink.Handle
 	crc32q        *crc32.Table
+	ifNameMap     map[string]string
 }
 
 
-func (host linuxHost) IfNameToLinuxIfName(ifName string) string {
+func (host *linuxHost) IfNameToLinuxIfName(ifName string) string {
 	if len(ifName) < 15 {
 		return ifName
 	}
 
 	beginning := ifName[:6]
 	endingBinary := crc32.Checksum([]byte(ifName), host.crc32q)
-	return fmt.Sprintf("%v%08x", beginning, endingBinary)
+	hostIfName := fmt.Sprintf("%v%08x", beginning, endingBinary)
+	if host.ifNameMap[hostIfName] != "" && host.ifNameMap[hostIfName] != ifName {
+		panic(errIfNameCollision)
+	}
+	host.ifNameMap[hostIfName] = ifName
+	return hostIfName
 }
-func (host linuxHost) IfNameToHostIfName(ifName string) string {
+func (host *linuxHost) IfNameToHostIfName(ifName string) string {
 	return host.IfNameToLinuxIfName(ifName)
+}
+func (host linuxHost) LinuxIfNameToIfName(hostIfName string) string {
+	if len(hostIfName) < 15 {
+		return hostIfName
+	}
+	result := host.ifNameMap[hostIfName]
+	if result != "" {
+		host.Warningf("Cannot find the real name for interface %v", hostIfName)
+		return hostIfName
+	}
+	return result
+}
+func (host linuxHost) HostIfNameToIfName(hostIfName string) string {
+	return host.LinuxIfNameToIfName(hostIfName)
 }
 
 func NewHost(accessDetails *AccessDetails) networkControl.HostI {
@@ -68,6 +90,7 @@ func NewHost(accessDetails *AccessDetails) networkControl.HostI {
 		host.accessDetails = &accessDetailsCopy
 	}
 	host.crc32q = crc32.MakeTable(0xD5828281)
+	host.ifNameMap = map[string]string{}
 	host.HostBase.SetFirewall(iptables.NewFirewall(&host))
 	host.dhcpd = iscDhcp.NewDHCP()
 	host.netlink, err = netlink.NewHandle()
@@ -101,7 +124,7 @@ func (host *linuxHost) AddVLAN(vlan networkControl.VLAN) error {
 	bridgeLink := &netlink.Bridge{LinkAttrs: netlink.LinkAttrs{Name: host.IfNameToHostIfName(vlan.Name)}}
 	if err := host.netlink.LinkAdd(bridgeLink); err != nil {
 		if err.Error() == "file exists" {
-			host.LogWarning(err)
+			host.LogWarning(err, vlan, bridgeLink)
 		} else {
 			host.LogError(err)
 			return err
@@ -116,7 +139,7 @@ func (host *linuxHost) AddVLAN(vlan networkControl.VLAN) error {
 	vlanLink := &netlink.Vlan{netlink.LinkAttrs{Name: "trunk." + strconv.Itoa(vlan.VlanId), ParentIndex: trunk.Attrs().Index}, vlan.VlanId}
 	if err := host.netlink.LinkAdd(vlanLink); err != nil {
 		if err.Error() == "file exists" {
-			host.LogWarning(err)
+			host.LogWarning(err, vlan, vlanLink)
 		} else {
 			host.LogError(err)
 			return err
@@ -143,7 +166,7 @@ func (host *linuxHost) AddVLAN(vlan networkControl.VLAN) error {
 		err = host.netlink.AddrAdd(bridgeLink, addr)
 		if err != nil {
 			if err.Error() == "file exists" {
-				host.LogWarning(err)
+				host.LogWarning(err, ip, addr)
 			} else {
 				host.LogError(err)
 				return err
@@ -213,7 +236,13 @@ func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
 		panic(fmt.Errorf("oldVlan == nil: %v", vlan))
 	}
 	if oldVlan.Name != vlan.Name {
-		panic(errNotImplemented)
+		if host.IfNameToLinuxIfName(vlan.Name) == oldVlan.Name {
+			host.Warningf("Correcting name %v to %v", oldVlan.Name, vlan.Name)
+			oldVlan.Name = vlan.Name
+		}
+	}
+	if oldVlan.Name != vlan.Name {
+		host.LogError(errNotImplemented, oldVlan.Name, vlan.Name, oldVlan, vlan)
 		return errNotImplemented
 	}
 
@@ -255,7 +284,7 @@ func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
 
 	// Getting netlink pointers
 
-	bridgeLink, err := host.netlink.LinkByName(vlan.Name)
+	bridgeLink, err := host.netlink.LinkByName(host.IfNameToLinuxIfName(vlan.Name))
 	if err != nil {
 		host.LogError(err)
 		return err
@@ -316,7 +345,7 @@ func (host *linuxHost) UpdateDNAT(dnat networkControl.DNAT) error {
 }
 
 func (host *linuxHost) UpdateRoute(route networkControl.Route) error {
-	panic(errNotImplemented)
+	host.LogError(errNotImplemented, route)
 	return errNotImplemented
 }
 
@@ -546,11 +575,16 @@ func (host *linuxHost) InquireBridgedVLANs() networkControl.VLANs {
 	return host.inquireBridgedVLANs(netTree.GetTree().ToSlice())
 }
 func (host *linuxHost) InquireBridgedVLAN(vlanId int) *networkControl.VLAN {
-	vlans := host.InquireBridgedVLANs()
+	vlans := host.inquireBridgedVLANs(netTree.GetTree().ToSlice(), vlanId)
 
 	for _, vlan := range vlans {
 		if vlan.VlanId != vlanId {
 			continue
+		}
+
+		if vlan.Name == "" {
+			host.Warningf("vlan %v has empty name. vlan == %v", vlan.VlanId, vlan)
+			return nil
 		}
 
 		return vlan
@@ -558,8 +592,16 @@ func (host *linuxHost) InquireBridgedVLAN(vlanId int) *networkControl.VLAN {
 
 	return nil
 }
-func (host *linuxHost) inquireBridgedVLANs(ifaces netTree.Nodes) networkControl.VLANs { // TODO: consider possibility of .1q in .1q
+func (host *linuxHost) inquireBridgedVLANs(ifaces netTree.Nodes, filterVlanIds ...int) networkControl.VLANs { // TODO: consider possibility of .1q in .1q
+	host.Infof("host.inquireBridgedVLANs()")
 	vlans := networkControl.VLANs{}
+
+	filterVlanIdMap := map[int]bool{}
+	if len(filterVlanIds) > 0 {
+		for _, vlanId := range filterVlanIds {
+			filterVlanIdMap[vlanId] = true
+		}
+	}
 
 	for _, iface := range ifaces {
 		link, ok := iface.Link.(*netlink.Vlan)
@@ -578,6 +620,12 @@ func (host *linuxHost) inquireBridgedVLANs(ifaces netTree.Nodes) networkControl.
 			continue
 		}
 
+		if len(filterVlanIds) > 0 {
+			if !filterVlanIdMap[link.VlanId] {
+				continue
+			}
+		}
+
 		// IP-addresses
 		ips := networkControl.IPNets{}
 		addrs, err := host.netlink.AddrList(childLink, netlink.FAMILY_V4)
@@ -589,12 +637,14 @@ func (host *linuxHost) inquireBridgedVLANs(ifaces netTree.Nodes) networkControl.
 			ips = append(ips, networkControl.IPNet(*addr.Peer))
 		}
 
+		ifName := host.LinuxIfNameToIfName(childLink.Name)
+
 		// Security-level
-		securityLevel := host.GetFirewall().InquireSecurityLevel(childLink.Name)
+		securityLevel := host.GetFirewall().InquireSecurityLevel(ifName)
 
 		vlans[link.VlanId] = &networkControl.VLAN{
 			Interface: net.Interface{
-				Name: childLink.Name,
+				Name: ifName,
 				MTU:  childLink.MTU,
 			},
 			VlanId:        link.VlanId,
@@ -602,6 +652,8 @@ func (host *linuxHost) inquireBridgedVLANs(ifaces netTree.Nodes) networkControl.
 			SecurityLevel: securityLevel,
 		}
 	}
+
+	host.Infof("len(vlans) == %v, len(ifaces.ToSlice()) == %v", len(vlans), len(ifaces.ToSlice()))
 
 	return vlans
 }
@@ -656,10 +708,9 @@ func (host *linuxHost) InquireRoutes() (result networkControl.Routes) {
 			case "via":
 				route.Gateway, words = parseIP(words[1:])
 			case "dev":
-				route.IfName = words[1]
-				panic("shortened ifname is used for internal date. Fix it")
+				route.IfName = host.HostIfNameToIfName(words[1])
 				words = words[2:]
-			case "proto", "kernel", "scope", "link":
+			case "proto", "kernel", "scope", "link", "linkdown", "":
 				words = words[1:]
 			case "src":
 				words = words[2:]
@@ -667,6 +718,10 @@ func (host *linuxHost) InquireRoutes() (result networkControl.Routes) {
 				var source networkControl.IPNet
 				source, words = parseIPNet(words[1:])
 				route.Sources = append(route.Sources, source)
+				words = words[2:]
+			case "metric":
+				route.Metric, err = strconv.Atoi(words[1])
+				words = words[2:]
 			default:
 				panic("unknown word: \"" + words[0] + "\"")
 			}

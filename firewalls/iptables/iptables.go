@@ -54,6 +54,8 @@ func (fw iptables) InquireSecurityLevel(ifName string) int {
 		panic(err)
 	}
 
+	iptIfName := fw.IfNameToIPTIfName(ifName)
+
 	// TODO: sort setNames numberically before the "for" below
 
 	// Searching for IFACES.SECURITY_LEVEL.###
@@ -82,7 +84,7 @@ func (fw iptables) InquireSecurityLevel(ifName string) int {
 			if len(words) < 2 {
 				fw.LogPanic(fmt.Errorf("len(words) < 2"), setName, words)
 			}
-			if words[1] == ifName {
+			if words[1] == iptIfName {
 				return securityLevel
 			}
 		}
@@ -147,7 +149,7 @@ func (fw *iptables) createSecurityLevelRules() error {
 
 func (fw *iptables) addSecurityLevel(securityLevel int) error {
 	setName := "IFACES.SECURITY_LEVEL." + strconv.Itoa(securityLevel)
-	_, err := ipset.New(setName, "hash:net,iface", &ipset.Params{})
+	_, err := ipset.New(setName, "hash:net,iface", &ipset.Params{HashSize: 1048576})
 	if err != nil {
 		fw.LogError(err)
 		return err
@@ -170,7 +172,7 @@ func (fw *iptables) SetSecurityLevel(ifName string, securityLevel int) error {
 
 	// Adding to the new security level
 
-	err := ipset.Add(setName, "0.0.0.0/0,"+ifName, 0)
+	err := ipset.Add(setName, "0.0.0.0/0,"+fw.IfNameToIPTIfName(ifName), 0)
 	if err != nil {
 		fw.LogError(err)
 		return err
@@ -178,13 +180,16 @@ func (fw *iptables) SetSecurityLevel(ifName string, securityLevel int) error {
 
 	// Removing from the old security level
 
-	ipset.Del(oldSetName, "0.0.0.0/0,"+ifName)
+	ipset.Del(oldSetName, "0.0.0.0/0,"+fw.IfNameToIPTIfName(ifName))
 
 	return nil
 }
 
 func (fw iptables) IfNameToIPTIfName(ifName string) string {
 	return fw.GetHost().IfNameToHostIfName(ifName)
+}
+func (fw iptables) IPTIfNameToIfName(ifName string) string {
+	return fw.GetHost().HostIfNameToIfName(ifName)
 }
 
 func (fw iptables) getACLsNames() (result []string) {
@@ -231,7 +236,7 @@ func (fw iptables) inquireACL(aclName string) (result networkControl.ACL) {
 		if words[0] != "0.0.0.0/0" {
 			panic("Internal error. words[0] == \"" + words[0] + "\"")
 		}
-		ifName := words[1]
+		ifName := fw.IPTIfNameToIfName(words[1])
 		result.VLANNames = append(result.VLANNames, ifName)
 	}
 
@@ -394,15 +399,38 @@ func ruleToNetfilterRule(rule networkControl.ACLRule) (result []string) {
 		result = append(result, "-p", protocolString)
 	}
 
-	result = append(result, "-s", rule.FromNet.String(), "-d", rule.ToNet.String())
+	if rule.FromNet.String() != "0.0.0.0/0" {
+		result = append(result, "-s", rule.FromNet.String())
+	}
+	if rule.ToNet.String() != "0.0.0.0/0" {
+		result = append(result, "-d", rule.ToNet.String())
+	}
 
 	if len(rule.FromPortRanges) != 1 || len(rule.ToPortRanges) != 1 {
 		panic(fmt.Errorf("%v: %v, %v: %v", errNotImplemented, rule.FromPortRanges, rule.ToPortRanges, rule))
 	}
 
+
 	if rule.FromPortRanges[0].Start != 0 || rule.FromPortRanges[0].End != 65535 || rule.ToPortRanges[0].Start != 0 || rule.ToPortRanges[0].End != 65535 {
-		result = append(result, "-m", "multiport")
-		result = append(result, "--sports", portRangesToNetfilterPorts(rule.FromPortRanges), "--dports", portRangesToNetfilterPorts(rule.ToPortRanges))
+		if rule.FromPortRanges[0].Start != rule.FromPortRanges[0].End || rule.ToPortRanges[0].Start != rule.ToPortRanges[0].End {
+			result = append(result, "-m", "multiport")
+		}
+	}
+	if rule.FromPortRanges[0].Start != 0 || rule.FromPortRanges[0].End != 65535 {
+		if rule.FromPortRanges[0].Start != rule.FromPortRanges[0].End {
+			result = append(result, "--sports")
+		} else {
+			result = append(result, "--sport")
+		}
+		result = append(result, portRangesToNetfilterPorts(rule.FromPortRanges))
+	}
+	if rule.ToPortRanges[0].Start != 0 || rule.ToPortRanges[0].End != 65535 {
+		if rule.ToPortRanges[0].Start != rule.ToPortRanges[0].End {
+			result = append(result, "--dports")
+		} else {
+			result = append(result, "--dport")
+		}
+		result = append(result, portRangesToNetfilterPorts(rule.ToPortRanges))
 	}
 
 	var action string
@@ -424,7 +452,11 @@ func portRangesToNetfilterPorts(portRanges networkControl.PortRanges) string {
 	convPortRanges := []string{}
 
 	for _, portRange := range portRanges {
-		convPortRanges = append(convPortRanges, fmt.Sprintf("%v:%v", portRange.Start, portRange.End))
+		if portRange.Start == portRange.End {
+			convPortRanges = append(convPortRanges, fmt.Sprintf("%v", portRange.Start))
+		} else {
+			convPortRanges = append(convPortRanges, fmt.Sprintf("%v:%v", portRange.Start, portRange.End))
+		}
 	}
 
 	return strings.Join(convPortRanges, ",")
@@ -514,13 +546,14 @@ func (fw *iptables) AddACL(acl networkControl.ACL) (err error) {
 	// adding an ipset
 
 	var set *ipset.IPSet
-	set, err = ipset.New(setName, "hash:net,iface", &ipset.Params{})
+	set, err = ipset.New(setName, "hash:net,iface", &ipset.Params{HashSize: 1048576})
 	if err != nil {
 		return
 	}
 	for _, vlanName := range acl.VLANNames {
-		err = set.Add("0.0.0.0/0,"+vlanName, 0)
+		err = set.Add("0.0.0.0/0,"+fw.IfNameToIPTIfName(vlanName), 0)
 		if err != nil {
+			fw.LogError(err)
 			return
 		}
 	}
@@ -529,12 +562,17 @@ func (fw *iptables) AddACL(acl networkControl.ACL) (err error) {
 
 	err = fw.iptables.NewChain("filter", chainName)
 	if err != nil {
-		fw.LogError(err)
-		return err
+		if err.Error() == "Chain already exists." {
+			fw.LogWarning(err)
+		} else {
+			fw.LogError(err)
+			return err
+		}
 	}
 	for _, rule := range acl.Rules {
 		err = fw.iptables.AppendUnique("filter", chainName, ruleToNetfilterRule(rule)...)
 		if err != nil {
+			fw.LogError(err)
 			return
 		}
 	}
@@ -664,16 +702,16 @@ func (fw *iptables) AddDNAT(dnat networkControl.DNAT) error {
 	return nil
 }
 func (fw *iptables) UpdateACL(acl networkControl.ACL) error {
-	panic(fmt.Errorf("%v: %v", errNotImplemented.Error(), acl))
-	return errNotImplemented
+	fw.RemoveACL(acl)
+	return fw.AddACL(acl)
 }
 func (fw *iptables) UpdateSNAT(snat networkControl.SNAT) error {
-	panic(errNotImplemented)
-	return errNotImplemented
+	fw.RemoveSNAT(snat)
+	return fw.AddSNAT(snat)
 }
 func (fw *iptables) UpdateDNAT(dnat networkControl.DNAT) error {
-	panic(errNotImplemented)
-	return errNotImplemented
+	fw.RemoveDNAT(dnat)
+	return fw.AddDNAT(dnat)
 }
 func (fw *iptables) RemoveACL(acl networkControl.ACL) error {
 
@@ -684,8 +722,12 @@ func (fw *iptables) RemoveACL(acl networkControl.ACL) error {
 
 	err := fw.iptables.Delete("filter", "ACLs", "-m", "set", "--match-set", setName, "src,src", "-j", chainName)
 	if err != nil {
-		fw.LogError(err)
-		return err
+		if err.Error() == "No chain/target/match by that name." {
+			fw.LogError(err)
+			return err
+		} else {
+			fw.LogWarning(err)
+		}
 	}
 
 	// removing the chain
