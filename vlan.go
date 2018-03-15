@@ -1,6 +1,8 @@
 package networkControl
 
 import (
+	"fmt"
+	"github.com/xaionaro-go/handySlices"
 	"net"
 	"strconv"
 )
@@ -33,4 +35,33 @@ func (vlans *VLANs) SetSlice(slice []*VLAN) {
 }
 func (vlan VLAN) KeyStringValue() string {
 	return strconv.Itoa(vlan.VlanId)
+}
+func (vlan VLAN) IsEqualToI(compareToI handySlices.IsEqualToIer) bool {
+	compareTo, ok := compareToI.(VLAN)
+	if !ok {
+		compareToPtr := compareToI.(*VLAN)
+		compareTo = *compareToPtr
+	}
+	if vlan.VlanId != compareTo.VlanId {
+		fmt.Println("vlan.VlanId != compareTo.VlanId", vlan.VlanId, compareTo.VlanId)
+		return false
+	}
+	if vlan.SecurityLevel != compareTo.SecurityLevel {
+		//fmt.Println("vlan.SecurityLevel != compareTo.SecurityLevel", vlan.SecurityLevel, compareTo.SecurityLevel)
+		return false
+	}
+	if !vlan.IPs.IsEqualTo(compareTo.IPs) {
+		//fmt.Println("!vlan.IPs.IsEqualTo(compareTo.IPs)")
+		return false
+	}
+	if vlan.Name != compareTo.Name {
+		//fmt.Println("vlan.Name != compareTo.Name", vlan.Name, compareTo.Name)
+		return false
+	}
+	if vlan.MTU != compareTo.MTU {
+		//fmt.Println("vlan.MTU != compareTo.MTU", vlan.MTU, compareTo.MTU)
+		return false
+	}
+
+	return true
 }

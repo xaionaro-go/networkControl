@@ -235,6 +235,9 @@ func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
 	if oldVlan == nil {
 		panic(fmt.Errorf("oldVlan == nil: %v", vlan))
 	}
+
+	host.Infof("linuxHost.UpdateVLAN(): %v != %v", vlan, *oldVlan)
+
 	if oldVlan.Name != vlan.Name {
 		if host.IfNameToLinuxIfName(vlan.Name) == oldVlan.Name {
 			host.Warningf("Correcting name %v to %v", oldVlan.Name, vlan.Name)
@@ -253,6 +256,12 @@ func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
 		if err != nil {
 			host.LogError(err)
 			return err
+		}
+
+		// recheck just in case
+		newSecurityLevelCheck := host.GetFirewall().InquireSecurityLevel(vlan.Name)
+		if newSecurityLevelCheck != vlan.SecurityLevel {
+			panic(fmt.Errorf("cannot set new security level: %v", vlan))
 		}
 	}
 
@@ -611,12 +620,14 @@ func (host *linuxHost) inquireBridgedVLANs(ifaces netTree.Nodes, filterVlanIds .
 
 		if len(iface.Children) != 1 {
 			// TODO: consider this case (not-bridged vlan iface)
+			host.Warningf("len(iface.Children) != 1: %v", link)
 			continue
 		}
 		child := iface.Children[0]
 		childLink, ok := child.Link.(*netlink.Bridge)
 		if !ok {
 			// TODO: consider this case (not-bridged vlan iface)
+			host.Warningf("!ok: %v", link)
 			continue
 		}
 
@@ -681,7 +692,7 @@ func parseIPNet(words []string) (networkControl.IPNet, []string) {
 	return ipnet, words[1:]
 }
 func parseIP(words []string) (ip net.IP, newWords []string) {
-	ip = net.ParseIP(words[1])
+	ip = net.ParseIP(words[0])
 	newWords = words[1:]
 	return
 }
@@ -731,6 +742,10 @@ func (host *linuxHost) InquireRoutes() (result networkControl.Routes) {
 		}
 
 		result = append(result, &route)
+	}
+
+	for _, route := range result {
+		host.Infof("host.InquireRoutes() route: %v", *route)
 	}
 
 	return

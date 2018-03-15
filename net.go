@@ -1,6 +1,7 @@
 package networkControl
 
 import (
+	"github.com/xaionaro-go/handySlices"
 	"net"
 	"strconv"
 )
@@ -28,6 +29,22 @@ type Domain string
 
 func (ipnet IPNet) Contains(ip net.IP) bool {
 	return (*net.IPNet)(&ipnet).Contains(ip)
+}
+
+func (ips IPs) IsEqualTo(compareTo IPs) bool {
+	return handySlices.IsEqualCollections(ips, compareTo)
+}
+func (ipnets IPNets) IsEqualToI(compareToI handySlices.IsEqualToIer) bool {
+	return ipnets.IsEqualTo(compareToI.(IPNets))
+}
+func (ipnets IPNets) IsEqualTo(compareTo IPNets) bool {
+	return handySlices.IsEqualCollections(ipnets, compareTo)
+}
+func (ipnet IPNet) IsEqualToI(compareToI handySlices.IsEqualToIer) bool {
+	return ipnet.IsEqualTo(compareToI.(IPNet))
+}
+func (ipnet IPNet) IsEqualTo(compareTo IPNet) bool {
+	return ipnet.String() == compareTo.String()
 }
 
 func IPNetFromCIDRString(cidrString string) (ipnet IPNet, err error) {

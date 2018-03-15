@@ -71,32 +71,23 @@ func (fw iptables) InquireSecurityLevel(ifName string) int {
 			continue
 		}
 
-		rows, err := ipset.List(setName)
-		if err != nil {
+		ok, err := ipset.Test(setName, "0.0.0.0/0,"+iptIfName)
+		if err != nil && strings.Index(err.Error(), "is NOT in set") == -1 {
 			panic(err)
 		}
-
-		for _, row := range rows {
-			if len(row) == 0 || strings.HasPrefix(row, " ") {
-				continue
-			}
-			words := strings.Split(row, ",")
-			if len(words) < 2 {
-				fw.LogPanic(fmt.Errorf("len(words) < 2"), setName, words)
-			}
-			if words[1] == iptIfName {
-				return securityLevel
-			}
+		if ok {
+			return securityLevel
 		}
 	}
 
 	return 0
 }
 
-func (fw *iptables) createSecurityLevelRules() error {
+func (fw *iptables) createSecurityLevelRules() (err error) {
 	setNames, err := ipset.Names()
 	if err != nil {
-		panic(err)
+		fw.LogError(err)
+		return err
 	}
 
 	// Searching for IFACES.SECURITY_LEVEL.###
@@ -109,19 +100,32 @@ func (fw *iptables) createSecurityLevelRules() error {
 		setNameWords := strings.Split(setName, ".")
 		securityLevel, err := strconv.Atoi(setNameWords[2])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid security level value \"%v\" (in ipset name: %v): %v", setNameWords[2], setName, err.Error())
+			fw.Errorf("Invalid security level value \"%v\" (in ipset name: %v): %v", setNameWords[2], setName, err.Error())
 			continue
 		}
 
 		securityLevels = append(securityLevels, securityLevel)
 	}
 
-	for _, securityLevelA := range securityLevels {
+	fw.Infof("iptables.createSecurityLevelRules(): %v", securityLevels)
 
-		setName := "IFACES.SECURITY_LEVEL." + strconv.Itoa(securityLevelA)
+	for _, securityLevelA := range securityLevels {
+		var setName string
+
+		if securityLevelA >= 0 {
+			setName = "IFACES.SECURITY_LEVEL." + strconv.Itoa(securityLevelA)
+		} else {
+			setName = "IFACES.SECURITY_LEVEL.m" + strconv.Itoa(-securityLevelA)
+		}
 		chainName := setName
 
-		minSecurityLevelB := -1
+		err = fw.iptables.NewChain("filter", chainName)
+		if err != nil && strings.Index(err.Error(), "Chain already exists") == -1 {
+			fw.LogError(err)
+			return err
+		}
+
+		minSecurityLevelB := -65535
 		for _, securityLevelB := range securityLevels {
 			if securityLevelA >= securityLevelB {
 				continue
@@ -131,26 +135,62 @@ func (fw *iptables) createSecurityLevelRules() error {
 			}
 		}
 
-		setNameB := "IFACES.SECURITY_LEVEL." + strconv.Itoa(minSecurityLevelB)
-		chainNameB := setNameB
-		fw.iptables.AppendUnique("filter", chainName, "-j", chainNameB)
-
-		if fw.isSameSecurityTraffic {
-			fw.iptables.AppendUnique("filter", chainName, "-m", "set", "--match-set", setName, "dst,dst", "-j", "ACCEPT")
-		} else {
-			fw.iptables.AppendUnique("filter", chainName, "-m", "set", "--match-set", setNameB, "dst,dst", "-j", "ACCEPT")
+		if minSecurityLevelB == -65535 {
+			continue
 		}
 
-		fw.iptables.AppendUnique("filter", "SECURITY_LEVELs", "-m", "set", "--match-set", setName, "src,src", "-j", chainName)
+		var setNameB string
+		if minSecurityLevelB >= 0 {
+			setNameB = "IFACES.SECURITY_LEVEL." + strconv.Itoa(minSecurityLevelB)
+		} else {
+			setNameB = "IFACES.SECURITY_LEVEL.m" + strconv.Itoa(-minSecurityLevelB)
+		}
+		chainNameB := setNameB
+
+		err = fw.iptables.NewChain("filter", chainNameB)
+		if err != nil && strings.Index(err.Error(), "Chain already exists") == -1 {
+			fw.LogError(err)
+			return err
+		}
+
+		err = fw.iptables.AppendUnique("filter", chainName, "-j", chainNameB)
+
+		if err != nil {
+			fw.LogError(err)
+			return err
+		}
+
+		if fw.isSameSecurityTraffic {
+			err = fw.iptables.AppendUnique("filter", chainName, "-m", "set", "--match-set", setName, "dst,dst", "-j", "ACCEPT")
+		} else {
+			err = fw.iptables.AppendUnique("filter", chainName, "-m", "set", "--match-set", setNameB, "dst,dst", "-j", "ACCEPT")
+		}
+
+		if err != nil {
+			fw.LogError(err)
+			return err
+		}
+
+		err = fw.iptables.AppendUnique("filter", "SECURITY_LEVELs", "-m", "set", "--match-set", setName, "src,src", "-j", chainName)
+
+		if err != nil {
+			fw.LogError(err)
+			return err
+		}
 	}
 
 	return nil
 }
 
 func (fw *iptables) addSecurityLevel(securityLevel int) error {
-	setName := "IFACES.SECURITY_LEVEL." + strconv.Itoa(securityLevel)
+	var setName string
+	if securityLevel >= 0 {
+		setName = "IFACES.SECURITY_LEVEL." + strconv.Itoa(securityLevel)
+	} else {
+		setName = "IFACES.SECURITY_LEVEL.m" + strconv.Itoa(-securityLevel)
+	}
 	_, err := ipset.New(setName, "hash:net,iface", &ipset.Params{HashSize: 1048576})
-	if err != nil {
+	if err != nil && strings.Index(err.Error(), "set with the same name already exists") == -1 {
 		fw.LogError(err)
 		return err
 	}
@@ -158,7 +198,7 @@ func (fw *iptables) addSecurityLevel(securityLevel int) error {
 	return fw.createSecurityLevelRules()
 }
 
-func (fw *iptables) SetSecurityLevel(ifName string, securityLevel int) error {
+func (fw *iptables) SetSecurityLevel(ifName string, securityLevel int) (err error) {
 	setName := "IFACES.SECURITY_LEVEL." + strconv.Itoa(securityLevel)
 
 	// Remembering the old security level set name
@@ -166,13 +206,22 @@ func (fw *iptables) SetSecurityLevel(ifName string, securityLevel int) error {
 	oldSecurityLevel := fw.InquireSecurityLevel(ifName)
 	oldSetName := "IFACES.SECURITY_LEVEL." + strconv.Itoa(oldSecurityLevel)
 
+	// If nothing to do then return
+	if setName == oldSetName {
+		return nil
+	}
+
 	// Create the security level if not exists
 
-	fw.addSecurityLevel(securityLevel)
+	err = fw.addSecurityLevel(securityLevel)
+	if err != nil {
+		fw.LogError(err)
+		return err
+	}
 
 	// Adding to the new security level
 
-	err := ipset.Add(setName, "0.0.0.0/0,"+fw.IfNameToIPTIfName(ifName), 0)
+	err = ipset.Add(setName, "0.0.0.0/0,"+fw.IfNameToIPTIfName(ifName), 0)
 	if err != nil {
 		fw.LogError(err)
 		return err
