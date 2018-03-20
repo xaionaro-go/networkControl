@@ -10,6 +10,8 @@ type DHCPSubnet struct {
 	cfg.Subnet
 }
 
+var IsDHCPAsciiString = cfg.IsAsciiString
+
 func NewDHCP() *DHCP {
 	return (*DHCP)(cfg.NewRoot())
 }

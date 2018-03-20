@@ -240,7 +240,7 @@ func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
 
 	if oldVlan.Name != vlan.Name {
 		if host.IfNameToLinuxIfName(vlan.Name) == oldVlan.Name {
-			host.Warningf("Correcting name %v to %v", oldVlan.Name, vlan.Name)
+			host.Infof("Correcting name %v to %v", oldVlan.Name, vlan.Name)
 			oldVlan.Name = vlan.Name
 		}
 	}
@@ -249,7 +249,7 @@ func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
 		return errNotImplemented
 	}
 
-	// Fixeding the security level
+	// Fixing the security level
 
 	if oldVlan.SecurityLevel != vlan.SecurityLevel {
 		err := host.GetFirewall().SetSecurityLevel(vlan.Name, vlan.SecurityLevel)
@@ -570,7 +570,7 @@ func (host *linuxHost) InquireDHCP() (dhcp networkControl.DHCP) {
 	}
 
 	err := host.dhcpd.ReloadConfig()
-	if err != nil {
+	if err != nil && strings.Index(err.Error(), "no such file or directory") == -1 {
 		panic(err)
 	}
 	return networkControl.DHCP(host.dhcpd.Config.Root)
@@ -853,12 +853,12 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 
 	// dhcp
 
-	host.SetDHCPState(host.States.Cur.DHCP)
-	err := host.dhcpd.SaveConfig()
-	if err != nil {
+	err := host.dhcpd.ReloadConfig()
+	if err != nil && strings.Index(err.Error(), "no such file or directory") == -1 {
 		host.LogError(err)
 		return err
 	}
+	host.SetDHCPState(host.States.Cur.DHCP)
 
 	// iptables
 
