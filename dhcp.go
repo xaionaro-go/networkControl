@@ -9,6 +9,20 @@ type DHCPRange cfg.Range
 type DHCPSubnet struct {
 	cfg.Subnet
 }
+type DHCPValueType cfg.ValueType
+func (valueType DHCPValueType) ConfigString() string {
+	return cfg.ValueType(valueType).ConfigString()
+}
+func (valueType DHCPValueType) ToValueType() cfg.ValueType {
+	return cfg.ValueType(valueType)
+}
+
+
+const (
+	DHCPValueType_UNKNOWN     = DHCPValueType(cfg.UNKNOWN)
+	DHCPValueType_BYTEARRAY   = DHCPValueType(cfg.BYTEARRAY)
+	DHCPValueType_ASCIISTRING = DHCPValueType(cfg.ASCIISTRING)
+)
 
 var IsDHCPAsciiString = cfg.IsAsciiString
 

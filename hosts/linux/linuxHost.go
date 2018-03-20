@@ -202,7 +202,8 @@ func (host *linuxHost) exec(command ...interface{}) error {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		host.Errorf("Got an error while execution of %v: %v\nstdout: %v\nstderr: %v", commandStr, err, out.String(), stderr.String())
+		err = fmt.Errorf("Got an error while execution of %v: %v\nstdout: %v\nstderr: %v", commandStr, err, out.String(), stderr.String())
+		host.Errorf("%v", err.Error())
 		return err
 	}
 
@@ -220,8 +221,12 @@ func (host *linuxHost) AddRoute(route networkControl.Route) error {
 
 	err := host.exec("ip", "route", "add", route.Destination, "via", route.Gateway, "metric", route.Metric, "table", "fwsm")
 	if err != nil {
-		host.LogError(err)
-		return err
+		if strings.Index(err.Error(), "File exists") != -1 {
+			host.LogWarning(err)
+		} else {
+			host.LogError(err)
+			return err
+		}
 	}
 
 	return nil
@@ -505,14 +510,14 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 	var err error
 
 	// Running the new state on DHCP
-	oldDHCPState := networkControl.DHCP(host.dhcpd.Config.Root)
+	//oldDHCPState := networkControl.DHCP(host.dhcpd.Config.Root)
 	host.SetDHCPState(stateDiff.Updated.DHCP)
 	err = host.dhcpd.Restart()
 	if err != nil {
-		host.LogError(err)
-		return err
+		host.LogWarning(err)
 	}
 
+	/*
 	// But we need to revert the old state on the disk (the new state shouldn't be saved on the disk, yet)
 	host.SetDHCPState(oldDHCPState)
 	err = host.dhcpd.SaveConfig()
@@ -522,6 +527,7 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 	}
 	// And the running state should be new in our information
 	host.SetDHCPState(stateDiff.Updated.DHCP)
+	*/
 
 	// Removing
 
@@ -772,6 +778,7 @@ type netConfigT struct {
 }
 
 func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian with preinstalled packages: "iptables" and "ipset"!
+	host.Infof("linuxHost.SaveToDisk()")
 
 	// vlans and routes
 
@@ -789,6 +796,7 @@ func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian
 
 	// dhcp
 
+	host.Debugf("linuxHost.SaveToDisk(): DHCP == %v (new: %v; old: %v)", host.States.Cur.DHCP, host.States.New.DHCP, host.States.Old.DHCP)
 	host.SetDHCPState(host.States.Cur.DHCP)
 	err = host.dhcpd.SaveConfig()
 	if err != nil {
@@ -817,6 +825,7 @@ func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian
 	return nil
 }
 func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian with preinstalled packages: "iptables" and "ipset"!
+	host.RescanState()
 
 	// vlans and routes
 
@@ -846,8 +855,7 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 	if _, err := os.Stat("/etc/ipset-fwsm.dump"); err == nil {
 		_, err := exec.Command("ipset", "restore", "-file", "/etc/ipset-fwsm.dump").Output()
 		if err != nil {
-			host.LogError(err)
-			return err
+			host.LogWarning(err)
 		}
 	}
 
@@ -855,18 +863,16 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 
 	err := host.dhcpd.ReloadConfig()
 	if err != nil && strings.Index(err.Error(), "no such file or directory") == -1 {
-		host.LogError(err)
-		return err
+		host.LogWarning(err)
 	}
 	host.SetDHCPState(host.States.Cur.DHCP)
 
 	// iptables
 
-	if _, err := os.Stat("/etc/ipset-fwsm.dump"); err == nil {
-		_, err := exec.Command("iptables-restore", "/etc/ipset-fwsm.dump").Output()
+	if _, err := os.Stat("/etc/iptables/fwsm.rules"); err == nil {
+		_, err := exec.Command("iptables-restore", "/etc/iptables/fwsm.rules").Output()
 		if err != nil {
-			host.LogError(err)
-			return err
+			host.LogWarning(err)
 		}
 	}
 
