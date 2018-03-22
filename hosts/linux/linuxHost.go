@@ -28,6 +28,7 @@ var (
 
 const (
 	DHCP_CONFIG_PATH = "/etc/dhcp/dhcpd.conf"
+	SCRIPTS_PATH     = "/root/fwsm-config/linux"
 )
 
 type AccessDetails struct {
@@ -190,6 +191,8 @@ func (host *linuxHost) AddDNAT(dnat networkControl.DNAT) error {
 }
 
 func (host *linuxHost) exec(command ...interface{}) error {
+	host.Infof("linuxHost.exec(%v)", command)
+
 	commandStr := []string{}
 	for _, word := range command {
 		commandStr = append(commandStr, fmt.Sprintf("%v", word))
@@ -567,8 +570,31 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 		}
 	}
 
+	if len(stateDiff.Added.BridgedVLANs) > 0 || len(stateDiff.Updated.BridgedVLANs) > 0 || len(stateDiff.Removed.BridgedVLANs) > 0 {
+		err := host.runScript("post-change-vlan")
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
+
+func (host *linuxHost) runScript(scriptName string) (err error) {
+	scriptPath := SCRIPTS_PATH+"/"+scriptName
+
+	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
+		return nil
+	}
+
+	err = host.exec(scriptPath)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (host *linuxHost) InquireDHCP() (dhcp networkControl.DHCP) {
 	// Scanning on the local machine only, so "accessDetails" is not supported, yet
 	if host.accessDetails != nil {
