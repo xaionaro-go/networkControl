@@ -98,6 +98,13 @@ func NewHost(accessDetails *AccessDetails) networkControl.HostI {
 	if err != nil {
 		panic(err)
 	}
+
+	host.exec("ip", "rule", "del", "from", "any", "lookup", "fwsm")
+	err = host.exec("ip", "rule", "add", "from", "any", "lookup", "fwsm")
+	if err != nil {
+		panic(err)
+	}
+
 	return &host
 }
 
