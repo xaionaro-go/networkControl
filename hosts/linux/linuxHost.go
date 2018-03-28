@@ -118,6 +118,10 @@ func (host *linuxHost) getTrunkLink() (netlink.Link, error) {
 }
 
 func (host *linuxHost) AddVLAN(vlan networkControl.VLAN) error {
+	if vlan.IsIgnored {
+		return nil
+	}
+
 	if host.accessDetails != nil {
 		panic(errNotImplemented)
 	}
@@ -243,6 +247,9 @@ func (host *linuxHost) AddRoute(route networkControl.Route) error {
 }
 
 func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
+	if vlan.IsIgnored {
+		return nil
+	}
 
 	// Getting current configuration
 
@@ -266,6 +273,7 @@ func (host *linuxHost) UpdateVLAN(vlan networkControl.VLAN) error {
 
 	// Fixing the security level
 
+	host.Debugf("linuxHost.UpdateVLAN(): %v; SecurityLevel: %v %v", vlan.Name, oldVlan.SecurityLevel, vlan.SecurityLevel)
 	if oldVlan.SecurityLevel != vlan.SecurityLevel {
 		err := host.GetFirewall().SetSecurityLevel(vlan.Name, vlan.SecurityLevel)
 		if err != nil {
@@ -374,6 +382,10 @@ func (host *linuxHost) UpdateRoute(route networkControl.Route) error {
 }
 
 func (host *linuxHost) RemoveVLAN(vlan networkControl.VLAN) error {
+	if vlan.IsIgnored {
+		return nil
+	}
+
 	if host.accessDetails != nil {
 		panic(errNotImplemented)
 	}
@@ -403,7 +415,8 @@ func (host *linuxHost) RemoveVLAN(vlan networkControl.VLAN) error {
 		return err
 	}
 
-	panic(errNotImplemented) // TODO: clean up security levels chain in iptables
+	//panic(errNotImplemented) // TODO: clean up security levels chain in iptables
+	host.Warningf("cleaning up of security levels after removing a VLAN is not implemented, yet")
 
 	return nil
 }
@@ -694,8 +707,9 @@ func (host *linuxHost) inquireBridgedVLANs(ifaces netTree.Nodes, filterVlanIds .
 
 		vlans[link.VlanId] = &networkControl.VLAN{
 			Interface: net.Interface{
-				Name: ifName,
-				MTU:  childLink.MTU,
+				Name:         ifName,
+				MTU:          childLink.MTU,
+				HardwareAddr: childLink.HardwareAddr,
 			},
 			VlanId:        link.VlanId,
 			IPs:           ips,
@@ -807,24 +821,33 @@ func (host *linuxHost) SetDHCPState(state networkControl.DHCP) error {
 
 type netConfigT struct {
 	VLANs  networkControl.VLANs
-	Routes networkControl.Routes
 }
 
-func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian with preinstalled packages: "iptables" and "ipset"!
+func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian with preinstalled packages: "iproute2", "iptables" and "ipset"!
 	host.Infof("linuxHost.SaveToDisk()")
 
-	// vlans and routes
+	// vlans
 
 	{
 		netConfig := netConfigT{}
 		netConfig.VLANs = host.States.Cur.BridgedVLANs
-		netConfig.Routes = host.States.Cur.Routes
 		netConfigJson, _ := json.Marshal(netConfig)
 		err = ioutil.WriteFile("/etc/fwsm-net.json", netConfigJson, 0644)
 		if err != nil {
 			host.LogError(err)
 			return err
 		}
+	}
+
+	// routes
+
+	_, err = exec.Command("sh", "-c", "ip rule save > /etc/iproute.rules").Output()
+	if err != nil {
+		host.LogWarning(err)
+	}
+	_, err = exec.Command("sh", "-c", "ip route save > /etc/iproute.routes").Output()
+	if err != nil {
+		host.LogWarning(err)
 	}
 
 	// dhcp
@@ -857,10 +880,10 @@ func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian
 
 	return nil
 }
-func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian with preinstalled packages: "iptables" and "ipset"!
+func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian with preinstalled packages: "iproute2", "iptables" and "ipset"!
 	host.RescanState()
 
-	// vlans and routes
+	// vlans
 
 	if _, err := os.Stat("/etc/fwsm-net.json"); err == nil {
 		plan, err := ioutil.ReadFile("/etc/fwsm-net.json")
@@ -875,11 +898,35 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 			return err
 		}
 		host.States.New.BridgedVLANs = netConfig.VLANs
-		host.States.New.Routes = netConfig.Routes
 		err = host.Apply()
 		if err != nil {
 			host.LogError(err)
 			return err
+		}
+	}
+
+	// routes
+
+	if _, err := os.Stat("/etc/iproute.rules"); err == nil {
+		exec.Command("ip", "rule", "flush").Output()
+		exec.Command("ip", "rule", "del", "0").Output()
+		exec.Command("ip", "rule", "del", "0").Output()
+		exec.Command("ip", "rule", "del", "32766").Output()
+		exec.Command("ip", "rule", "del", "32766").Output()
+		exec.Command("ip", "rule", "del", "32767").Output()
+		exec.Command("ip", "rule", "del", "32767").Output()
+		_, err := exec.Command("sh", "-c", "ip rule restore < /etc/iproute.rules").Output()
+		if err != nil {
+			host.LogWarning(err)
+		}
+		exec.Command("ip", "rule", "add", "from", "all", "lookup", "local", "priority", "0").Output()
+		exec.Command("ip", "rule", "add", "from", "all", "lookup", "main", "priority", "32766").Output()
+		exec.Command("ip", "rule", "add", "from", "all", "lookup", "default", "priority", "32767").Output()
+	}
+	if _, err := os.Stat("/etc/iproute.routes"); err == nil {
+		_, err := exec.Command("sh", "-c", "ip route restore < /etc/iproute.routes").Output()
+		if err != nil {
+			host.LogWarning(err)
 		}
 	}
 

@@ -12,6 +12,7 @@ type VLAN struct {
 	VlanId        int
 	IPs           IPNets
 	SecurityLevel int
+	IsIgnored     bool
 }
 
 func NewVLAN(iface net.Interface) *VLAN {
