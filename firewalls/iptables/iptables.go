@@ -89,6 +89,7 @@ func (fw iptables) InquireSecurityLevel(ifName string) int {
 		}
 	}
 
+	fw.Infof("Cannot find security level of iface %v", ifName)
 	return -1
 }
 
@@ -110,7 +111,11 @@ func (fw *iptables) createSecurityLevelRules() (err error) {
 		setNameWords := strings.Split(setName, ".")
 		securityLevel, err := strconv.Atoi(setNameWords[2])
 		if err != nil {
-			fw.Errorf("Invalid security level value \"%v\" (in ipset name: %v): %v", setNameWords[2], setName, err.Error())
+			fw.Warningf("Invalid security level value \"%v\" (in ipset name: %v): %v", setNameWords[2], setName, err.Error())
+			err := ipset.Destroy(setName)
+			if err != nil {
+				fw.Errorf("Cannot delete the set \"%v\" of the invalid security level: %v", setName, err.Error())
+			}
 			continue
 		}
 
@@ -248,6 +253,10 @@ func (fw *iptables) SetSecurityLevel(ifName string, securityLevel int) (err erro
 	setName := "IFACES.SECURITY_LEVEL." + strconv.Itoa(securityLevel)
 	fw.Infof("iptables.SetSecurityLevel(%v, %v): %v", ifName, securityLevel, setName)
 
+	if securityLevel < 0 {
+		fw.Warningf("securityLevel < 0: %v", securityLevel)
+	}
+
 	// Remembering the old security level set name
 
 	oldSecurityLevel := fw.InquireSecurityLevel(ifName)
@@ -270,7 +279,7 @@ func (fw *iptables) SetSecurityLevel(ifName string, securityLevel int) (err erro
 
 	err = ipset.Add(setName, "0.0.0.0/0,"+fw.IfNameToIPTIfName(ifName), 0)
 	if err != nil {
-		fw.LogError(err)
+		fw.LogError(err, securityLevel, setName, ifName)
 		return err
 	}
 

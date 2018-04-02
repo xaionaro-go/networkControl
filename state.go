@@ -96,6 +96,17 @@ func (state *State) RemoveBridgedVLAN(vlanId int) error {
 func (state State) GetVLAN(vlanId int) VLAN {
 	return state.BridgedVLANs.Get(vlanId)
 }
+func (state *State) CopyIgnoredFrom(source State) {
+	if state.BridgedVLANs == nil {
+		state.BridgedVLANs = VLANs{}
+	}
+	for k, v := range source.BridgedVLANs {
+		if !v.IsIgnored {
+			continue
+		}
+		state.BridgedVLANs[k] = v
+	}
+}
 
 type StateDiff struct {
 	Added   State

@@ -416,7 +416,7 @@ func (host *linuxHost) RemoveVLAN(vlan networkControl.VLAN) error {
 	}
 
 	//panic(errNotImplemented) // TODO: clean up security levels chain in iptables
-	host.Warningf("cleaning up of security levels after removing a VLAN is not implemented, yet")
+	host.Warningf("cleaning up of security levels after removing a VLAN is not implemented, yet. VLAN %v: %v", vlan.VlanId, vlan)
 
 	return nil
 }
@@ -805,6 +805,9 @@ func (host *linuxHost) InquireRoutes() (result networkControl.Routes) {
 }
 
 func (host *linuxHost) RescanState() error {
+	oldIgnoredState := networkControl.State{}
+	oldIgnoredState.CopyIgnoredFrom(host.States.Cur)
+
 	host.States.Cur.BridgedVLANs = host.InquireBridgedVLANs()
 	host.States.Cur.DHCP = host.InquireDHCP()
 	host.States.Cur.ACLs = host.InquireACLs()
@@ -812,6 +815,7 @@ func (host *linuxHost) RescanState() error {
 	host.States.Cur.DNATs = host.InquireDNATs()
 	host.States.Cur.Routes = host.InquireRoutes()
 
+	host.States.Cur.CopyIgnoredFrom(oldIgnoredState)
 	return nil
 }
 func (host *linuxHost) SetDHCPState(state networkControl.DHCP) error {
@@ -831,7 +835,7 @@ func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian
 	{
 		netConfig := netConfigT{}
 		netConfig.VLANs = host.States.Cur.BridgedVLANs
-		netConfigJson, _ := json.Marshal(netConfig)
+		netConfigJson, _ := json.MarshalIndent(netConfig, "", " ")
 		err = ioutil.WriteFile("/etc/fwsm-net.json", netConfigJson, 0644)
 		if err != nil {
 			host.LogError(err)

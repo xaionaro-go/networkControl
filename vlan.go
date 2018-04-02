@@ -63,6 +63,9 @@ func (vlan VLAN) IsEqualToI(compareToI handySlices.IsEqualToIer) bool {
 		//fmt.Println("vlan.MTU != compareTo.MTU", vlan.MTU, compareTo.MTU)
 		return false
 	}
+	if vlan.IsIgnored && compareTo.IsIgnored {
+		return true
+	}
 
 	return true
 }

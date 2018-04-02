@@ -20,6 +20,9 @@ func (fw FirewallBase) Debugf(fmt string, args ...interface{}) {
 func (fw FirewallBase) Infof(fmt string, args ...interface{}) {
 	fw.GetHost().Infof(fmt, args...)
 }
+func (fw FirewallBase) Warningf(fmt string, args ...interface{}) {
+	fw.GetHost().Warningf(fmt, args...)
+}
 func (fw FirewallBase) Errorf(fmt string, args ...interface{}) {
 	fw.GetHost().Errorf(fmt, args...)
 }
@@ -71,7 +74,7 @@ func (host *HostBase) SetParent(newParent HostI) error {
 	return nil
 }
 func (host *HostBase) SetLoggerDebug(newLogger *log.Logger) {
-	host.loggerError = newLogger
+	host.loggerDebug = newLogger
 }
 func (host *HostBase) SetLoggerInfo(newLogger *log.Logger) {
 	host.loggerInfo = newLogger
@@ -146,8 +149,10 @@ func (host HostBase) GetVLAN(vlanId int) VLAN {
 	return host.States.Cur.GetVLAN(vlanId)
 }
 func (host *HostBase) Apply() error {
+	host.States.New.CopyIgnoredFrom(host.States.Cur)
 	stateDiff := host.States.New.Diff(host.States.Cur)
 	err1 := host.parent.ApplyDiff(stateDiff)
+	host.States.Cur = host.States.New
 	err2 := host.RescanState()
 	if err1 != nil {
 		return err1
