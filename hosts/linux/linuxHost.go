@@ -27,8 +27,9 @@ var (
 )
 
 const (
-	DHCP_CONFIG_PATH = "/etc/dhcp/dhcpd.conf"
-	SCRIPTS_PATH     = "/root/fwsm-config/linux"
+	DHCP_CONFIG_PATH      = "/etc/dhcp/dhcpd.conf"
+	SCRIPTS_PATH          = "/root/fwsm-config/linux"
+	NETCONTOL_CONFIG_PATH = "/etc/networkControl.json"
 )
 
 type AccessDetails struct {
@@ -836,7 +837,7 @@ func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian
 		netConfig := netConfigT{}
 		netConfig.VLANs = host.States.Cur.BridgedVLANs
 		netConfigJson, _ := json.MarshalIndent(netConfig, "", " ")
-		err = ioutil.WriteFile("/etc/fwsm-net.json", netConfigJson, 0644)
+		err = ioutil.WriteFile(NETCONTOL_CONFIG_PATH, netConfigJson, 0644)
 		if err != nil {
 			host.LogError(err)
 			return err
@@ -889,8 +890,8 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 
 	// vlans
 
-	if _, err := os.Stat("/etc/fwsm-net.json"); err == nil {
-		plan, err := ioutil.ReadFile("/etc/fwsm-net.json")
+	if _, err := os.Stat(NETCONTOL_CONFIG_PATH); err == nil {
+		plan, err := ioutil.ReadFile(NETCONTOL_CONFIG_PATH)
 		if err != nil {
 			host.LogError(err)
 			return err
@@ -930,7 +931,7 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 	if _, err := os.Stat("/etc/iproute.routes"); err == nil {
 		_, err := exec.Command("sh", "-c", "ip route restore < /etc/iproute.routes").Output()
 		if err != nil {
-			host.LogWarning(err)
+			host.LogWarning(err, "ip route restore < /etc/iproute.routes")
 		}
 	}
 
@@ -939,7 +940,7 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 	if _, err := os.Stat("/etc/ipset-fwsm.dump"); err == nil {
 		_, err := exec.Command("ipset", "restore", "-file", "/etc/ipset-fwsm.dump").Output()
 		if err != nil {
-			host.LogWarning(err)
+			host.LogWarning(err, "ipset", "restore", "-file", "/etc/ipset-fwsm.dump")
 		}
 	}
 
@@ -956,7 +957,7 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 	if _, err := os.Stat("/etc/iptables/fwsm.rules"); err == nil {
 		_, err := exec.Command("iptables-restore", "/etc/iptables/fwsm.rules").Output()
 		if err != nil {
-			host.LogWarning(err)
+			host.LogWarning(err, "iptables-restore", "/etc/iptables/fwsm.rules")
 		}
 	}
 
