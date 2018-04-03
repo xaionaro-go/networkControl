@@ -21,7 +21,7 @@ to `/etc/iproute2/rt_tables`
 
 ## ipset bug
 
-Metfilter [hangs](https://bugzilla.kernel.org/show_bug.cgi?id=199107) if you do the next thing:
+Netfilter [hangs](https://bugzilla.kernel.org/show_bug.cgi?id=199107) if you do the next thing:
 
 ```sh
 ipset create ACL.IN.ALL_PERMIT hash:net,iface hashsize 1048576 timeout 0
