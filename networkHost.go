@@ -184,6 +184,9 @@ func (host *HostBase) Save() error {
 func (host *HostBase) RescanState() error {
 	return host.parent.RescanState()
 }
+func (host HostBase) GetCurState() State {
+	return host.States.Cur
+}
 
 type HostI interface {
 	AddBridgedVLAN(VLAN) error
@@ -209,6 +212,8 @@ type HostI interface {
 
 	ApplyDiff(StateDiff) error
 	RescanState() error
+
+	GetCurState() State
 
 	SetLoggerDebug(*log.Logger)
 	SetLoggerInfo(*log.Logger)
@@ -358,6 +363,15 @@ func (hosts Hosts) SetNewState(newState State) error {
 		}
 	}
 	return nil
+}
+func (hosts Hosts) GetCurState() State {
+	panic(errNotImplemented)
+}
+func (hosts Hosts) GetCurStates() (states []State) {
+	for _, host := range hosts {
+		states = append(states, host.GetCurState())
+	}
+	return
 }
 func (hosts Hosts) Apply() error {
 	for _, host := range hosts {

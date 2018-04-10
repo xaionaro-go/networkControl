@@ -590,7 +590,7 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 			return err
 		}
 	}
-	host.Debugf("stateDiff.Removed.SNATs")
+	host.Debugf("stateDiff.Removed.SNATs: %v", stateDiff.Removed.SNATs)
 	for _, snat := range stateDiff.Removed.SNATs {
 		err := host.RemoveSNAT(*snat)
 		if err != nil {
