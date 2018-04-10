@@ -66,7 +66,7 @@ func (fw iptables) InquireSecurityLevel(ifName string) int {
 
 		chainName := setName
 		iptOk, err := fw.iptables.Exists("filter", "SECURITY_LEVELs", "-m", "set", "--match-set", setName, "src,src", "-j", chainName)
-		if err != nil {
+		if err != nil && strings.Index(err.Error(), "No such file or directory") == -1 {
 			panic(err)
 		}
 		if !iptOk {
