@@ -4,6 +4,7 @@ import (
 	"github.com/xaionaro-go/handySlices"
 	"net"
 	"strconv"
+	"strings"
 )
 
 type Protocol int
@@ -26,6 +27,23 @@ type IPPorts []IPPort
 type NSs []net.NS
 type PortRanges []PortRange
 type Domain string
+
+func (ipport *IPPort) Parse(str string) {
+	if len(str) == 0 {
+		return
+	}
+	words := strings.Split(str, ":")
+	ipport.IP = net.ParseIP(words[0])
+	if len(words) > 1 {
+		port, err := strconv.Atoi(words[1])
+		if err != nil {
+			panic(err)
+		}
+		port16 := uint16(port)
+		ipport.Port = &port16
+	}
+	return
+}
 
 func (ipnet IPNet) Contains(ip net.IP) bool {
 	return (*net.IPNet)(&ipnet).Contains(ip)

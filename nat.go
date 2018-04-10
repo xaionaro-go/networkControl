@@ -1,6 +1,7 @@
 package networkControl
 
 import (
+	"fmt"
 	"net"
 )
 
@@ -49,7 +50,7 @@ func (dnat DNAT) GetPos() string {
 }
 
 func (snat SNAT) KeyStringValue() string {
-	return snat.NATTo.String()
+	return fmt.Sprintf("%v", snat.Sources)
 }
 func (dnat DNAT) KeyStringValue() string {
 	return dnat.NATTo.String()

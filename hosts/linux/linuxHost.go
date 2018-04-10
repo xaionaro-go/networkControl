@@ -478,7 +478,7 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 			return err
 		}
 	}
-	host.Debugf("stateDiff.Added.SNATs")
+	host.Debugf("stateDiff.Added.SNATs: %v", len(stateDiff.Added.SNATs))
 	for _, snat := range stateDiff.Added.SNATs {
 		err := host.AddSNAT(*snat)
 		if err != nil {
@@ -486,7 +486,7 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 			return err
 		}
 	}
-	host.Debugf("stateDiff.Added.DNATs")
+	host.Debugf("stateDiff.Added.DNATs: %v", len(stateDiff.Added.DNATs))
 	for _, dnat := range stateDiff.Added.DNATs {
 		err := host.AddDNAT(*dnat)
 		if err != nil {
@@ -521,7 +521,10 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 			return err
 		}
 	}
-	host.Debugf("stateDiff.Updated.SNATs")
+	host.Debugf("stateDiff.Updated.SNATs: %v", len(stateDiff.Updated.SNATs))
+	/*for _, s := range stateDiff.Updated.SNATs {
+		host.Debugf("stateDiff.Updated.SNATs: %v", s)
+	}*/
 	for _, snat := range stateDiff.Updated.SNATs {
 		err := host.UpdateSNAT(*snat)
 		if err != nil {
@@ -529,7 +532,7 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 			return err
 		}
 	}
-	host.Debugf("stateDiff.Updated.DNATs")
+	host.Debugf("stateDiff.Updated.DNATs: %v", len(stateDiff.Updated.DNATs))
 	for _, dnat := range stateDiff.Updated.DNATs {
 		err := host.UpdateDNAT(*dnat)
 		if err != nil {
@@ -590,7 +593,7 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 			return err
 		}
 	}
-	host.Debugf("stateDiff.Removed.SNATs: %v", stateDiff.Removed.SNATs)
+	host.Debugf("stateDiff.Removed.SNATs: %v", len(stateDiff.Removed.SNATs))
 	for _, snat := range stateDiff.Removed.SNATs {
 		err := host.RemoveSNAT(*snat)
 		if err != nil {
@@ -598,7 +601,7 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 			return err
 		}
 	}
-	host.Debugf("stateDiff.Removed.DNATs")
+	host.Debugf("stateDiff.Removed.DNATs: %v", len(stateDiff.Removed.DNATs))
 	for _, dnat := range stateDiff.Removed.DNATs {
 		err := host.RemoveDNAT(*dnat)
 		if err != nil {
@@ -956,8 +959,8 @@ func (host *linuxHost) RestoreFromDisk() error { // ATM, works only with Debian 
 			host.LogError(err)
 			return err
 		}
+		host.States.New = host.States.Cur
 		host.States.New.BridgedVLANs = netConfig.VLANs
-		host.States.New.DHCP = host.States.Cur.DHCP
 		err = host.Apply()
 		if err != nil {
 			host.LogError(err)

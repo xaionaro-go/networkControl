@@ -436,7 +436,6 @@ func (fw iptables) InquireSNATs() (result networkControl.SNATs) {
 			}
 		}
 		snat.Sources = append(snat.Sources, source)
-
 		result = append(result, &snat)
 	}
 
@@ -473,7 +472,11 @@ func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
 
 			case "-d":
 				var err error
-				destination.IP = net.ParseIP(words[1])
+				subWords := strings.Split(words[1], "/")
+				if len(subWords) > 1 && subWords[1] != "32" {
+					panic(fmt.Sprintf("%v: %v: %v", errNotImplemented, subWords, words, ruleString))
+				}
+				destination.IP = net.ParseIP(subWords[0])
 				if err != nil {
 					panic(err)
 				}
@@ -482,6 +485,7 @@ func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
 			case "-p":
 				proto := networkControl.ProtocolFromString(words[1])
 				destination.Protocol = &proto
+				dnat.NATTo.Protocol = &proto
 				words = words[2:]
 
 			case "--dport":
@@ -511,7 +515,7 @@ func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
 				if words[1] != "DNAT" || words[2] != "--to-destination" {
 					panic("illegal rule: "+ruleString)
 				}
-				dnat.NATTo.IP = net.ParseIP(words[3])
+				dnat.NATTo.Parse(words[3])
 				words = words[4:]
 
 			default:
@@ -808,7 +812,7 @@ func ipportToShortNetfilterIPPort(ipport networkControl.IPPort) string {
 		return ipport.IP.String()
 	}
 	if ipport.Port == nil || ipport.Protocol == nil {
-		panic("This case is not implemented")
+		panic(fmt.Errorf("This case is not implemented: %v", ipport))
 	}
 	return fmt.Sprintf("%v:%v", ipport.IP, *ipport.Port)
 }
