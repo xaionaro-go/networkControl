@@ -440,7 +440,7 @@ func (fw iptables) InquireSNATs() (result networkControl.SNATs) {
 		result = append(result, &snat)
 	}
 
-	fw.Debugf("InquireSNATs(): %v", result)
+	fw.Debugf("InquireSNATs(): %v", len(result))
 	return
 }
 func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
@@ -482,6 +482,7 @@ func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
 			case "-p":
 				proto := networkControl.ProtocolFromString(words[1])
 				destination.Protocol = &proto
+				words = words[2:]
 
 			case "--dport":
 				port, err := strconv.Atoi(words[1])
@@ -495,9 +496,13 @@ func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
 
 			case "--comment":
 				dnatComment := dnatCommentT{}
-				err := json.Unmarshal([]byte(words[1]), &dnatComment)
+				commentStr, err := strconv.Unquote(words[1])
 				if err != nil {
-					panic(err)
+					panic(fmt.Errorf("%v: %v", err, words[1]))
+				}
+				err = json.Unmarshal([]byte(commentStr), &dnatComment)
+				if err != nil {
+					panic(fmt.Errorf("%v: %v", err, commentStr))
 				}
 				dnat.IfName = dnatComment.IfName
 				words = words[2:]
@@ -517,6 +522,8 @@ func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
 
 		result = append(result, &dnat)
 	}
+
+	fw.Debugf("InquireDNATs(): %v", len(result))
 	return
 }
 
