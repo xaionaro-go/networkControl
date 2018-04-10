@@ -159,6 +159,11 @@ func (host *linuxHost) AddVLAN(vlan networkControl.VLAN) error {
 		}
 	}
 
+	if err := host.netlink.LinkSetUp(vlanLink); err != nil {
+		host.LogError(err)
+		return err
+	}
+
 	if err := host.netlink.LinkSetMaster(vlanLink, bridgeLink); err != nil {
 		host.LogError(err)
 		return err
