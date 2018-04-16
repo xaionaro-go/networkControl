@@ -479,6 +479,9 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 		}
 	}
 	host.Debugf("stateDiff.Added.SNATs: %v", len(stateDiff.Added.SNATs))
+	for _, s := range stateDiff.Added.SNATs {
+		host.Debugf("stateDiff.Added.SNATs: %v", s)
+	}
 	for _, snat := range stateDiff.Added.SNATs {
 		err := host.AddSNAT(*snat)
 		if err != nil {
@@ -487,6 +490,9 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 		}
 	}
 	host.Debugf("stateDiff.Added.DNATs: %v", len(stateDiff.Added.DNATs))
+	for _, s := range stateDiff.Added.DNATs {
+		host.Debugf("stateDiff.Added.DNATs: %v", s)
+	}
 	for _, dnat := range stateDiff.Added.DNATs {
 		err := host.AddDNAT(*dnat)
 		if err != nil {
@@ -522,9 +528,9 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 		}
 	}
 	host.Debugf("stateDiff.Updated.SNATs: %v", len(stateDiff.Updated.SNATs))
-	/*for _, s := range stateDiff.Updated.SNATs {
+	for _, s := range stateDiff.Updated.SNATs {
 		host.Debugf("stateDiff.Updated.SNATs: %v", s)
-	}*/
+	}
 	for _, snat := range stateDiff.Updated.SNATs {
 		err := host.UpdateSNAT(*snat)
 		if err != nil {
@@ -533,6 +539,9 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 		}
 	}
 	host.Debugf("stateDiff.Updated.DNATs: %v", len(stateDiff.Updated.DNATs))
+	for _, s := range stateDiff.Updated.DNATs {
+		host.Debugf("stateDiff.Updated.DNATs: %v", s)
+	}
 	for _, dnat := range stateDiff.Updated.DNATs {
 		err := host.UpdateDNAT(*dnat)
 		if err != nil {
@@ -602,6 +611,9 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 		}
 	}
 	host.Debugf("stateDiff.Removed.DNATs: %v", len(stateDiff.Removed.DNATs))
+	for _, d := range stateDiff.Updated.DNATs {
+		host.Debugf("stateDiff.Removed.DNATs: %v", d)
+	}
 	for _, dnat := range stateDiff.Removed.DNATs {
 		err := host.RemoveDNAT(*dnat)
 		if err != nil {

@@ -1,8 +1,10 @@
 package networkControl
 
 import (
+	"fmt"
 	"github.com/xaionaro-go/handySlices"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -27,6 +29,18 @@ type IPPorts []IPPort
 type NSs []net.NS
 type PortRanges []PortRange
 type Domain string
+
+func (a IPPorts) Len() int           { return len(a) }
+func (a IPPorts) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a IPPorts) Less(i, j int) bool { return strings.Compare(a[i].String(), a[j].String()) < 0 }
+
+func (ipports *IPPorts) Sort() IPPorts {
+	sort.Sort(*ipports)
+	return *ipports
+}
+func (ipports IPPorts) String() string {
+	return fmt.Sprintf("%v", ([]IPPort)(ipports))
+}
 
 func (ipport *IPPort) Parse(str string) {
 	if len(str) == 0 {

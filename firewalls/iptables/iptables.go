@@ -382,6 +382,7 @@ func (fw iptables) InquireSNATs() (result networkControl.SNATs) {
 	if err != nil {
 		panic(err)
 	}
+	snatMap := map[string]*networkControl.SNAT{}
 	for _, ruleString := range ruleStrings {
 		words := strings.Split(ruleString, " ")
 		if words[0] == "-N" {
@@ -435,8 +436,18 @@ func (fw iptables) InquireSNATs() (result networkControl.SNATs) {
 				panic(fmt.Errorf("%v: %v: %v", errNotImplemented, words, ruleString))
 			}
 		}
-		snat.Sources = append(snat.Sources, source)
-		result = append(result, &snat)
+		snatKey := snat.NATTo.String()
+		if snatMap[snatKey] == nil {
+			snat.Sources = append(snat.Sources, source)
+			snatMap[snatKey] = &snat
+		} else {
+			snatMap[snatKey].Sources = append(snatMap[snatKey].Sources, source)
+		}
+	}
+
+	for _, snat := range snatMap {
+		snat.Sources = snat.Sources.Sort()
+		result = append(result, snat)
 	}
 
 	fw.Debugf("InquireSNATs(): %v", len(result))

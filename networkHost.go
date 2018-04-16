@@ -1,6 +1,7 @@
 package networkControl
 
 import (
+	"github.com/xaionaro-go/handySlices"
 	"log"
 )
 
@@ -149,6 +150,7 @@ func (host HostBase) GetVLAN(vlanId int) VLAN {
 	return host.States.Cur.GetVLAN(vlanId)
 }
 func (host *HostBase) Apply() error {
+	handySlices.Debugf = host.Debugf
 	host.States.New.CopyIgnoredFrom(host.States.Cur)
 	stateDiff := host.States.New.Diff(host.States.Cur)
 	err1 := host.parent.ApplyDiff(stateDiff)
