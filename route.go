@@ -11,9 +11,7 @@ type Route struct {
 	Destination IPNet
 	Gateway     net.IP
 	Metric      int
-
-	// TODO: try to remove this
-	IfName string
+	IfName      string
 }
 
 type Routes []*Route

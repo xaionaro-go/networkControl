@@ -239,7 +239,7 @@ func (host *linuxHost) AddRoute(route networkControl.Route) error {
 		panic(fmt.Sprintf("Not implemented, yet: %v", route))
 	}
 
-	err := host.exec("ip", "route", "add", route.Destination, "via", route.Gateway, "metric", route.Metric, "table", "fwsm")
+	err := host.exec("ip", "route", "add", route.Destination, "via", route.Gateway, "metric", route.Metric, "dev", route.IfName, "table", "fwsm")
 	if err != nil {
 		if strings.Index(err.Error(), "File exists") != -1 {
 			host.LogWarning(err)
@@ -448,7 +448,7 @@ func (host *linuxHost) RemoveRoute(route networkControl.Route) error {
 		panic(fmt.Sprintf("Not implemented, yet: %v", route))
 	}
 
-	err := host.exec("ip", "route", "del", route.Destination, "via", route.Gateway, "metric", route.Metric, "table", "fwsm")
+	err := host.exec("ip", "route", "del", route.Destination, "via", route.Gateway, "metric", route.Metric, "dev", route.IfName, "table", "fwsm")
 	if err != nil {
 		host.LogError(err)
 		return err

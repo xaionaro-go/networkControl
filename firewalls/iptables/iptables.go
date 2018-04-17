@@ -40,9 +40,19 @@ func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
 	fw.iptables.NewChain("nat", "SNATs")
 	fw.iptables.NewChain("nat", "DNATs")
 
+	ok, _ := fw.iptables.Exists("filter", "FORWARD", "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT")
+	if !ok {
+		err := fw.iptables.Insert("filter", "FORWARD", 1, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT")
+		if err != nil {
+			panic(err)
+		}
+	}
 	fw.iptables.AppendUnique("filter", "FORWARD", "-j", "ACLs")
 	fw.iptables.AppendUnique("filter", "FORWARD", "-j", "SECURITY_LEVELs")
 	fw.iptables.AppendUnique("nat", "PREROUTING", "-j", "DNATs")
+	/*fw.iptables.AppendUnique("nat", "POSTROUTING", "-d", "10.0.0.0/8", "-j", "ACCEPT")
+	fw.iptables.AppendUnique("nat", "POSTROUTING", "-d", "172.16.0.0/12", "-j", "ACCEPT")
+	fw.iptables.AppendUnique("nat", "POSTROUTING", "-d", "192.168.0.0/16", "-j", "ACCEPT")*/
 	fw.iptables.AppendUnique("nat", "POSTROUTING", "-j", "SNATs")
 
 	return fw
@@ -475,8 +485,8 @@ func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
 		destination := networkControl.IPPort{}
 		for len(words) > 0 {
 			switch words[0] {
-			case "-i":
-				words = words[2:]
+			/*case "-i":
+				words = words[2:]*/
 
 			case "-m":
 				words = words[2:]
@@ -833,7 +843,8 @@ func (fw iptables) dnatRuleStrings(dnat networkControl.DNAT, destination network
 		IfName: dnat.IfName,
 	}
 
-	rule := []string{"-i", fw.IfNameToIPTIfName(dnat.IfName)}
+	rule := []string{}
+	//rule = append(rule, "-i", fw.IfNameToIPTIfName(dnat.IfName))
 	rule = append(rule, ipportToNetfilterIPPort(destination, true)...)
 	rule = append(rule, "-j", "DNAT", "--to-destination", ipportToShortNetfilterIPPort(dnat.NATTo), "-m", "comment", "--comment", dnatComment.Json())
 
