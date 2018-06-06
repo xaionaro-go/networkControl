@@ -47,14 +47,16 @@ func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
 	fw.SetHost(host)
 
 	fw.iptables.NewChain("mangle", "ACLs")
-	fw.iptables.NewChain("mangle", "SECURITY_LEVELs")
+	fw.iptables.NewChain("mangle", "IN_SECURITY_LEVELs")
+	fw.iptables.NewChain("mangle", "OUT_SECURITY_LEVELs")
 	fw.iptables.NewChain("filter", "ACLs")
 	fw.iptables.NewChain("filter", "SECURITY_LEVELs")
 	fw.iptables.NewChain("nat", "SNATs")
 	fw.iptables.NewChain("nat", "DNATs")
 
-	fw.iptables.AppendUnique("mangle", "PREROUTING", "-j", "ACLs")
-	fw.iptables.AppendUnique("mangle", "PREROUTING", "-j", "SECURITY_LEVELs")
+	fw.iptables.AppendUnique("mangle", "FORWARD", "-j", "ACLs")
+	fw.iptables.AppendUnique("mangle", "FORWARD", "-j", "IN_SECURITY_LEVELs")
+	fw.iptables.AppendUnique("mangle", "FORWARD", "-j", "OUT_SECURITY_LEVELs")
 
 	ok, _ := fw.iptables.Exists("filter", "FORWARD", "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT")
 	if !ok {
@@ -64,6 +66,8 @@ func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
 		}
 	}
 	fw.iptables.AppendUnique("filter", "FORWARD", "-j", "ACLs")
+	//fw.iptables.AppendUnique("filter", "FORWARD", "-j", "MARK", "--set-mark", "0x1000000/0x1000000", "-m", "comment", "--comment", "mark that this packet is not mine (a forwarded packet)")
+	//fw.iptables.AppendUnique("filter", "OUTPUT", "-m", "mark", "!", "--mark", "0x1000000/0x1000000", "-j", "ACCEPT", "-m", "comment", "--comment", "it's my traffic, it should not be filtered")
 	fw.iptables.AppendUnique("filter", "FORWARD", "-j", "SECURITY_LEVELs")
 	fw.iptables.AppendUnique("nat", "PREROUTING", "-j", "DNATs")
 	fw.iptables.AppendUnique("nat", "POSTROUTING", "-d", "10.0.0.0/8", "-j", "ACCEPT")
@@ -71,11 +75,12 @@ func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
 	fw.iptables.AppendUnique("nat", "POSTROUTING", "-d", "192.168.0.0/16", "-j", "ACCEPT")
 	fw.iptables.AppendUnique("nat", "POSTROUTING", "-j", "SNATs")
 
-	// TODO: remove this hack
-	fw.iptables.ClearChain("filter", "ACLs")
+	// TODO: remove this hack (update "--comment"-s correctly)
+	/*fw.iptables.ClearChain("filter", "ACLs")
 	fw.iptables.ClearChain("filter", "SECURITY_LEVELs")
 	fw.iptables.ClearChain("mangle", "ACLs")
-	fw.iptables.ClearChain("mangle", "SECURITY_LEVELs")
+	fw.iptables.ClearChain("mangle", "IN_SECURITY_LEVELs")
+	fw.iptables.ClearChain("mangle", "OUT_SECURITY_LEVELs")*/
 
 	return fw
 }
@@ -151,7 +156,7 @@ func (fw iptables) InquireSecurityLevel(ifName string) int {
 	fw.Infof("Cannot find security level of iface %v", ifName)
 	return -1
 	*/
-	ruleStrings, err := fw.iptables.List("mangle", "SECURITY_LEVELs")
+	ruleStrings, err := fw.iptables.List("mangle", "IN_SECURITY_LEVELs")
 	for _, ruleString := range ruleStrings {
 		var ruleIfName string
 		isIfaceRule := false
@@ -179,13 +184,12 @@ func (fw iptables) InquireSecurityLevel(ifName string) int {
 			fw.Errorf(`ifName == ""`)
 			continue
 		}
-		if ifName != ruleIfName {
+		if fw.GetHost().IfNameToHostIfName(ifName) != ruleIfName {
 			continue
 		}
-		ifNameWords := strings.Split(ifName, ".")
 		securityLevel := fw.MarkToSecurityLevel(mark)
 		if err != nil {
-			fw.LogError(err, ifNameWords)
+			fw.LogError(err, mark)
 			continue
 		}
 		return securityLevel
@@ -315,10 +319,10 @@ func (fw *iptables) createSecurityLevelRules() (err error) {
 		{
 			var err error
 			if fw.isSameSecurityTraffic {
-				err = fw.iptables.AppendUnique("filter", chainName, "-m", "mark", "--mark", strconv.Itoa(fw.SecurityLevelToMark(securityLevelA))+"/0xff", "-j", "ACCEPT")
+				err = fw.iptables.AppendUnique("filter", chainName, "-m", "mark", "--mark", (strconv.Itoa(fw.SecurityLevelToMark(securityLevelA)<<8))+"/0xff00", "-j", "ACCEPT")
 			} else {
 				if setNameB != "" {
-					err = fw.iptables.AppendUnique("filter", chainName, "-m", "mark", "--mark", strconv.Itoa(fw.SecurityLevelToMark(minSecurityLevelB))+"/0xff", "-j", "ACCEPT")
+					err = fw.iptables.AppendUnique("filter", chainName, "-m", "mark", "--mark", (strconv.Itoa(fw.SecurityLevelToMark(minSecurityLevelB)<<8))+"/0xff00", "-j", "ACCEPT")
 				}
 			}
 			if err != nil {
@@ -501,7 +505,13 @@ func (fw *iptables) SetSecurityLevel(ifName string, securityLevel int) (err erro
 
 	// Adding new security level rule
 
-	err = fw.iptables.AppendUnique("mangle", "SECURITY_LEVELs", "-i", fw.GetHost().IfNameToHostIfName(ifName), "-j", "MARK", "--set-mark", strconv.Itoa(fw.SecurityLevelToMark(securityLevel))+"/0xff", "-m", "comment", "--comment", "{security_level:"+strconv.Itoa(securityLevel)+"}")
+	err = fw.iptables.AppendUnique("mangle", "IN_SECURITY_LEVELs", "-i", fw.GetHost().IfNameToHostIfName(ifName), "-j", "MARK", "--set-mark", strconv.Itoa(fw.SecurityLevelToMark(securityLevel))+"/0xff", "-m", "comment", "--comment", "{security_level:"+strconv.Itoa(securityLevel)+"}")
+	if err != nil {
+		fw.LogError(err)
+		return err
+	}
+
+	err = fw.iptables.AppendUnique("mangle", "OUT_SECURITY_LEVELs", "-o", fw.GetHost().IfNameToHostIfName(ifName), "-j", "MARK", "--set-mark", (strconv.Itoa(fw.SecurityLevelToMark(securityLevel)<<8))+"/0xff00", "-m", "comment", "--comment", "{security_level:"+strconv.Itoa(securityLevel)+"}")
 	if err != nil {
 		fw.LogError(err)
 		return err
@@ -510,7 +520,14 @@ func (fw *iptables) SetSecurityLevel(ifName string, securityLevel int) (err erro
 	// Removing old security level rule
 
 	if oldSecurityLevel != -1 {
-		err = fw.iptables.Delete("mangle", "SECURITY_LEVELs", "-i", fw.GetHost().IfNameToHostIfName(ifName), "-j", "MARK", "--set-mark", strconv.Itoa(fw.SecurityLevelToMark(oldSecurityLevel))+"/0xff", "-m", "comment", "--comment", "{security_level:"+strconv.Itoa(oldSecurityLevel)+"}")
+		err = fw.iptables.Delete("mangle", "IN_SECURITY_LEVELs", "-i", fw.GetHost().IfNameToHostIfName(ifName), "-j", "MARK", "--set-mark", strconv.Itoa(fw.SecurityLevelToMark(oldSecurityLevel))+"/0xff", "-m", "comment", "--comment", "{security_level:"+strconv.Itoa(oldSecurityLevel)+"}")
+		if err != nil {
+			fw.LogError(err)
+		}
+		err = fw.iptables.Delete("mangle", "OUT_SECURITY_LEVELs", "-o", fw.GetHost().IfNameToHostIfName(ifName), "-j", "MARK", "--set-mark", (strconv.Itoa(fw.SecurityLevelToMark(oldSecurityLevel)<<8))+"/0xff00", "-m", "comment", "--comment", "{security_level:"+strconv.Itoa(oldSecurityLevel)+"}")
+		if err != nil {
+			fw.LogError(err)
+		}
 	}
 
 	// finish
@@ -650,7 +667,7 @@ func (fw iptables) inquireACL(aclName string) (result networkControl.ACL) {
 		ruleMark := -1
 		ruleWords := strings.Split(ruleString, " ")
 		for idx, ruleWord := range ruleWords {
-			switch ruleWord { // -A ACLs -i library_inside -j MARK --set-xmark 0x100/0xff00
+			switch ruleWord { // -A ACLs -i library_inside -j MARK --set-xmark 0x10000/0xff0000
 			case "-i":
 				ifName = ruleWords[idx+1]
 			case "--set-xmark":
@@ -1035,13 +1052,13 @@ func (fw *iptables) AddACL(acl networkControl.ACL) (err error) {
 
 	if fw.aclToMark[acl.Name] == 0 {
 		fw.markMax_ACL++
-		mark := fw.markMax_ACL << 8
+		mark := fw.markMax_ACL << 16
 		fw.markToACL[mark] = acl.Name
 		fw.aclToMark[acl.Name] = mark
 	}
 
 	for _, vlanName := range acl.VLANNames {
-		err = fw.iptables.AppendUnique("mangle", "ACLs", "-i", fw.GetHost().IfNameToHostIfName(vlanName), "-j", "MARK", "--set-mark", strconv.Itoa(fw.ACLToMark(acl.Name))+"/0xff00", "-m", "comment", "--comment", "{acl:"+acl.Name+"}")
+		err = fw.iptables.AppendUnique("mangle", "ACLs", "-i", fw.GetHost().IfNameToHostIfName(vlanName), "-j", "MARK", "--set-mark", strconv.Itoa(fw.ACLToMark(acl.Name))+"/0xff0000", "-m", "comment", "--comment", "{acl:"+acl.Name+"}")
 		if err != nil {
 			fw.LogError(err)
 		}
@@ -1072,7 +1089,7 @@ func (fw *iptables) AddACL(acl networkControl.ACL) (err error) {
 	return fw.iptables.AppendUnique("filter", "ACLs", "-m", "set", "--match-set", setName, "src,src", "-j", chainName)
 	*/
 
-	return fw.iptables.AppendUnique("filter", "ACLs", "-m", "mark", "--mark", strconv.Itoa(fw.ACLToMark(acl.Name))+"/0xff00", "-j", chainName)
+	return fw.iptables.AppendUnique("filter", "ACLs", "-m", "mark", "--mark", strconv.Itoa(fw.ACLToMark(acl.Name))+"/0xff0000", "-j", chainName)
 }
 
 type dnatCommentT struct {
