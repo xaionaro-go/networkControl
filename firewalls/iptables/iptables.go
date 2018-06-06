@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	ipt "github.com/coreos/go-iptables/iptables"
-	"github.com/xaionaro-go/go-ipset/ipset"
 	"github.com/xaionaro-go/networkControl"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 )
@@ -21,6 +19,14 @@ type iptables struct {
 	networkControl.FirewallBase
 	iptables              *ipt.IPTables
 	isSameSecurityTraffic bool
+
+	markToSecurityLevel   map[int]*int
+	securityLevelToMark   map[int]int
+	markMax_securityLevel int
+
+	markToACL   map[int]string
+	aclToMark   map[string]int
+	markMax_ACL int
 }
 
 func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
@@ -30,15 +36,25 @@ func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
 	}
 
 	fw := &iptables{
-		iptables: newIPT,
+		iptables:              newIPT,
+		isSameSecurityTraffic: true,
+		markToSecurityLevel:   map[int]*int{},
+		securityLevelToMark:   map[int]int{},
+		markToACL:             map[int]string{},
+		aclToMark:             map[string]int{},
 	}
 
 	fw.SetHost(host)
 
+	fw.iptables.NewChain("mangle", "ACLs")
+	fw.iptables.NewChain("mangle", "SECURITY_LEVELs")
 	fw.iptables.NewChain("filter", "ACLs")
 	fw.iptables.NewChain("filter", "SECURITY_LEVELs")
 	fw.iptables.NewChain("nat", "SNATs")
 	fw.iptables.NewChain("nat", "DNATs")
+
+	fw.iptables.AppendUnique("mangle", "PREROUTING", "-j", "ACLs")
+	fw.iptables.AppendUnique("mangle", "PREROUTING", "-j", "SECURITY_LEVELs")
 
 	ok, _ := fw.iptables.Exists("filter", "FORWARD", "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT")
 	if !ok {
@@ -50,15 +66,48 @@ func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
 	fw.iptables.AppendUnique("filter", "FORWARD", "-j", "ACLs")
 	fw.iptables.AppendUnique("filter", "FORWARD", "-j", "SECURITY_LEVELs")
 	fw.iptables.AppendUnique("nat", "PREROUTING", "-j", "DNATs")
-	/*fw.iptables.AppendUnique("nat", "POSTROUTING", "-d", "10.0.0.0/8", "-j", "ACCEPT")
+	fw.iptables.AppendUnique("nat", "POSTROUTING", "-d", "10.0.0.0/8", "-j", "ACCEPT")
 	fw.iptables.AppendUnique("nat", "POSTROUTING", "-d", "172.16.0.0/12", "-j", "ACCEPT")
-	fw.iptables.AppendUnique("nat", "POSTROUTING", "-d", "192.168.0.0/16", "-j", "ACCEPT")*/
+	fw.iptables.AppendUnique("nat", "POSTROUTING", "-d", "192.168.0.0/16", "-j", "ACCEPT")
 	fw.iptables.AppendUnique("nat", "POSTROUTING", "-j", "SNATs")
+
+	// TODO: remove this hack
+	fw.iptables.ClearChain("filter", "ACLs")
+	fw.iptables.ClearChain("filter", "SECURITY_LEVELs")
+	fw.iptables.ClearChain("mangle", "ACLs")
+	fw.iptables.ClearChain("mangle", "SECURITY_LEVELs")
 
 	return fw
 }
 
+func (fw iptables) GetSecurityLevels() (securityLevels []int) {
+	/*
+	chainNames := fw.iptables.ListChains("filter")
+	for _, chainName := range chainNames {
+		if strings.Index(chainName, "IFACES.SECURITY_LEVEL.") != 0 {
+			continue
+		}
+		words := strings.Split(chainName, ".")
+		securityLevelString := words[2]
+		securityLevel, err := strconv.Atoi(securityLevelString)
+		if err != nil {
+			fw.LogError(err, securityLevelString)
+			continue
+		}
+		securityLevels = append(securityLevels, securityLevel)
+	}
+
+	return
+	*/
+	for securityLevel, _ := range fw.securityLevelToMark {
+		securityLevels = append(securityLevels, securityLevel)
+	}
+
+	return
+}
+
 func (fw iptables) InquireSecurityLevel(ifName string) int {
+	/* See https://bugzilla.kernel.org/show_bug.cgi?id=199107
 	setNames, err := ipset.Names()
 	if err != nil {
 		panic(err)
@@ -101,9 +150,52 @@ func (fw iptables) InquireSecurityLevel(ifName string) int {
 
 	fw.Infof("Cannot find security level of iface %v", ifName)
 	return -1
+	*/
+	ruleStrings, err := fw.iptables.List("mangle", "SECURITY_LEVELs")
+	for _, ruleString := range ruleStrings {
+		var ruleIfName string
+		isIfaceRule := false
+		ruleWords := strings.Split(ruleString, " ")
+		var mark int
+		for idx, ruleWord := range ruleWords {
+			switch ruleWord {
+			case "-i":
+				ruleIfName = ruleWords[idx+1]
+			case "--set-xmark":
+				markString := strings.Split(ruleWords[idx+1], "/")[0]
+				mark64, err := strconv.ParseInt(markString, 0, 32)
+				if err == nil {
+					mark = int(mark64)
+					isIfaceRule = true
+				} else {
+					fw.LogError(err, ruleString)
+				}
+			}
+		}
+		if !isIfaceRule {
+			continue
+		}
+		if ruleIfName == "" {
+			fw.Errorf(`ifName == ""`)
+			continue
+		}
+		if ifName != ruleIfName {
+			continue
+		}
+		ifNameWords := strings.Split(ifName, ".")
+		securityLevel := fw.MarkToSecurityLevel(mark)
+		if err != nil {
+			fw.LogError(err, ifNameWords)
+			continue
+		}
+		return securityLevel
+	}
+	fw.Infof("Cannot find security level of iface %v", ifName)
+	return -1
 }
 
 func (fw *iptables) createSecurityLevelRules() (err error) {
+	/* See https://bugzilla.kernel.org/show_bug.cgi?id=199107
 	setNames, err := ipset.Names()
 	fw.Infof("iptables.createSecurityLevelRules(): setNames == %v", setNames)
 	if err != nil {
@@ -131,6 +223,9 @@ func (fw *iptables) createSecurityLevelRules() (err error) {
 
 		securityLevels = append(securityLevels, securityLevel)
 	}
+	*/
+
+	securityLevels := fw.GetSecurityLevels()
 
 	fw.Infof("iptables.createSecurityLevelRules(): %v", securityLevels)
 
@@ -191,6 +286,7 @@ func (fw *iptables) createSecurityLevelRules() (err error) {
 			}
 		}
 
+		/* See https://bugzilla.kernel.org/show_bug.cgi?id=199107
 		{
 			var err error
 			if fw.isSameSecurityTraffic {
@@ -208,13 +304,32 @@ func (fw *iptables) createSecurityLevelRules() (err error) {
 
 		{
 			var err error
-			//if fw.isSameSecurityTraffic {
 			err = fw.iptables.AppendUnique("filter", "SECURITY_LEVELs", "-m", "set", "--match-set", setName, "src,src", "-j", chainName)
-			/*} else {
-				if chainNameB != "" {
-					err = fw.iptables.AppendUnique("filter", "SECURITY_LEVELs", "-m", "set", "--match-set", setName, "src,src", "-j", chainNameB)
+			if err != nil {
+				fw.LogError(err)
+				return err
+			}
+		}
+		*/
+
+		{
+			var err error
+			if fw.isSameSecurityTraffic {
+				err = fw.iptables.AppendUnique("filter", chainName, "-m", "mark", "--mark", strconv.Itoa(fw.SecurityLevelToMark(securityLevelA))+"/0xff", "-j", "ACCEPT")
+			} else {
+				if setNameB != "" {
+					err = fw.iptables.AppendUnique("filter", chainName, "-m", "mark", "--mark", strconv.Itoa(fw.SecurityLevelToMark(minSecurityLevelB))+"/0xff", "-j", "ACCEPT")
 				}
-			}*/
+			}
+			if err != nil {
+				fw.LogError(err)
+				return err
+			}
+		}
+
+		{
+			var err error
+			err = fw.iptables.AppendUnique("filter", "SECURITY_LEVELs", "-m", "mark", "--mark", strconv.Itoa(fw.SecurityLevelToMark(securityLevelA))+"/0xff", "-j", chainName)
 			if err != nil {
 				fw.LogError(err)
 				return err
@@ -244,22 +359,93 @@ func (fw *iptables) createSecurityLevelRules() (err error) {
 }
 
 func (fw *iptables) addSecurityLevel(securityLevel int) error {
+	/* See https://bugzilla.kernel.org/show_bug.cgi?id=199107
 	var setName string
 	if securityLevel >= 0 {
 		setName = "IFACES.SECURITY_LEVEL." + strconv.Itoa(securityLevel)
 	} else {
 		setName = "IFACES.SECURITY_LEVEL.m" + strconv.Itoa(-securityLevel)
 	}
-	_, err := ipset.New(setName, "hash:net,iface", &ipset.Params{HashSize: 1048576})
+	_, err := ipset.New(setName, "hash:net,iface", &ipset.Params{HashSize: 4096, MaxElem: 4096})
 	if err != nil && strings.Index(err.Error(), "set with the same name already exists") == -1 {
 		fw.Errorf("iptables.addSecurityLevel(%v): %v", securityLevel, err)
 		return err
 	}
 
 	return fw.createSecurityLevelRules()
+	*/
+
+	if fw.securityLevelToMark[securityLevel] == 0 {
+		fw.markMax_securityLevel++
+		fw.securityLevelToMark[securityLevel] = fw.markMax_securityLevel
+		fw.markToSecurityLevel[fw.markMax_securityLevel] = &securityLevel
+	}
+
+	return fw.createSecurityLevelRules()
+}
+
+func (fw *iptables) MarkToSecurityLevel(mark int) int {
+	securityLevelPtr := fw.markToSecurityLevel[mark]
+
+	if securityLevelPtr != nil { // Found? Ok, returning
+		return *securityLevelPtr
+	}
+
+	// Not found? Ok, scanning :(
+
+	fw.Debugf("securityLevel == nil: %v", mark)
+	ruleStrings, err := fw.iptables.List("filter", "SECURITY_LEVELs")
+	if err != nil {
+		fw.LogError(err)
+	}
+	for _, ruleString := range ruleStrings {
+		var chainName string
+		ruleMark := -1
+		ruleWords := strings.Split(ruleString, " ")
+		for idx, ruleWord := range ruleWords {
+			switch ruleWord {
+			case "-j":
+				chainName = ruleWords[idx+1]
+			case "--mark":
+				markString := strings.Split(ruleWords[idx+1], "/")[0]
+				mark64, err := strconv.ParseInt(markString, 0, 32)
+				if err == nil {
+					ruleMark = int(mark64)
+				} else {
+					fw.LogError(err, ruleString)
+				}
+			}
+		}
+		if ruleMark != mark {
+			continue
+		}
+		// -A SECURITY_LEVELs -m mark --mark 0x1/0xff -j IFACES.SECURITY_LEVEL.50
+		// -A SECURITY_LEVELs -m mark --mark 0x2/0xff -j IFACES.SECURITY_LEVEL.0
+		chainNameWords := strings.Split(chainName, ".")
+		securityLevel, err := strconv.Atoi(chainNameWords[2])
+		if err != nil {
+			fw.LogError(err, chainNameWords)
+		}
+		fw.markToSecurityLevel[mark] = &securityLevel
+		return securityLevel
+	}
+
+	// Still not found?
+
+	fw.Errorf("securityLevel == nil: %v", mark)
+	return -1
+}
+
+func (fw iptables) SecurityLevelToMark(securityLevel int) int {
+	mark := fw.securityLevelToMark[securityLevel]
+	if mark == 0 {
+		fw.Panicf("mark == 0", securityLevel)
+	}
+	return mark
 }
 
 func (fw *iptables) SetSecurityLevel(ifName string, securityLevel int) (err error) {
+	/* See https://bugzilla.kernel.org/show_bug.cgi?id=199107
 	setName := "IFACES.SECURITY_LEVEL." + strconv.Itoa(securityLevel)
 	fw.Infof("iptables.SetSecurityLevel(%v, %v): %v", ifName, securityLevel, setName)
 
@@ -296,8 +482,40 @@ func (fw *iptables) SetSecurityLevel(ifName string, securityLevel int) (err erro
 	// Removing from the old security level
 
 	ipset.Del(oldSetName, "0.0.0.0/0,"+fw.IfNameToIPTIfName(ifName))
+	*/
 
-	return nil
+	// Remembering the old security level
+
+	oldSecurityLevel := fw.InquireSecurityLevel(ifName)
+	if oldSecurityLevel == securityLevel {
+		return nil
+	}
+
+	// Create the security level if not exists
+
+	err = fw.addSecurityLevel(securityLevel)
+	if err != nil {
+		fw.LogError(err)
+		return err
+	}
+
+	// Adding new security level rule
+
+	err = fw.iptables.AppendUnique("mangle", "SECURITY_LEVELs", "-i", fw.GetHost().IfNameToHostIfName(ifName), "-j", "MARK", "--set-mark", strconv.Itoa(fw.SecurityLevelToMark(securityLevel))+"/0xff", "-m", "comment", "--comment", "{security_level:"+strconv.Itoa(securityLevel)+"}")
+	if err != nil {
+		fw.LogError(err)
+		return err
+	}
+
+	// Removing old security level rule
+
+	if oldSecurityLevel != -1 {
+		err = fw.iptables.Delete("mangle", "SECURITY_LEVELs", "-i", fw.GetHost().IfNameToHostIfName(ifName), "-j", "MARK", "--set-mark", strconv.Itoa(fw.SecurityLevelToMark(oldSecurityLevel))+"/0xff", "-m", "comment", "--comment", "{security_level:"+strconv.Itoa(oldSecurityLevel)+"}")
+	}
+
+	// finish
+
+	return err
 }
 
 func (fw iptables) IfNameToIPTIfName(ifName string) string {
@@ -308,6 +526,7 @@ func (fw iptables) IPTIfNameToIfName(ifName string) string {
 }
 
 func (fw iptables) getACLsNames() (result []string) {
+	/* See https://bugzilla.kernel.org/show_bug.cgi?id=199107
 	setNames, err := ipset.Names()
 	if err != nil {
 		panic(err)
@@ -327,15 +546,79 @@ func (fw iptables) getACLsNames() (result []string) {
 		}
 		result = append(result, setNameWords[2])
 	}
+	*/
+
+	for acl, _ := range fw.aclToMark {
+		result = append(result, acl)
+	}
 
 	return
+}
+
+func (fw *iptables) MarkToACL(mark int) string {
+	aclName := fw.markToACL[mark]
+
+	if aclName != "" { // Found? Ok, returning
+		return aclName
+	}
+
+	// Not found? Ok, scanning :(
+
+	fw.Debugf(`aclName == "": %v`, mark)
+	ruleStrings, err := fw.iptables.List("filter", "ACLs")
+	if err != nil {
+		fw.LogError(err)
+	}
+	for _, ruleString := range ruleStrings {
+		var chainName string
+		ruleMark := -1
+		ruleWords := strings.Split(ruleString, " ")
+		for idx, ruleWord := range ruleWords {
+			switch ruleWord {
+			case "-j":
+				chainName = ruleWords[idx+1]
+			case "--mark":
+				markString := strings.Split(ruleWords[idx+1], "/")[0]
+				mark64, err := strconv.ParseInt(markString, 0, 32)
+				if err == nil {
+					ruleMark = int(mark64)
+				} else {
+					fw.LogError(err, ruleString)
+				}
+			}
+		}
+		if ruleMark != mark {
+			continue
+		}
+		chainNameWords := strings.Split(chainName, ".")
+		aclName := chainNameWords[2]
+		if err != nil {
+			fw.LogError(err, chainNameWords)
+		}
+		fw.markToACL[mark] = aclName
+		return aclName
+	}
+
+	// Still not found?
+
+	fw.Errorf(`aclName == "": %v`, mark)
+	return ""
+}
+
+func (fw *iptables) ACLToMark(aclName string) int {
+	mark := fw.aclToMark[aclName]
+	if mark == 0 {
+		fw.Panicf("mark == 0", aclName)
+		return -1
+	}
+	return mark
 }
 
 func (fw iptables) inquireACL(aclName string) (result networkControl.ACL) {
 	result.Name = aclName
 
 	// Getting VLANs of the ACL
-
+	/* See https://bugzilla.kernel.org/show_bug.cgi?id=199107
 	setName := "ACL.IN." + aclName
 	setRows, err := ipset.List(setName)
 	if err != nil {
@@ -352,6 +635,37 @@ func (fw iptables) inquireACL(aclName string) (result networkControl.ACL) {
 			panic("Internal error. words[0] == \"" + words[0] + "\"")
 		}
 		ifName := fw.IPTIfNameToIfName(words[1])
+		result.VLANNames = append(result.VLANNames, ifName)
+	}
+	*/
+
+	ruleStrings, err := fw.iptables.List("mangle", "ACLs")
+	if err != nil {
+		fw.LogPanic(err)
+	}
+
+	mark := fw.ACLToMark(aclName)
+	for _, ruleString := range ruleStrings {
+		var ifName string
+		ruleMark := -1
+		ruleWords := strings.Split(ruleString, " ")
+		for idx, ruleWord := range ruleWords {
+			switch ruleWord { // -A ACLs -i library_inside -j MARK --set-xmark 0x100/0xff00
+			case "-i":
+				ifName = ruleWords[idx+1]
+			case "--set-xmark":
+				markString := strings.Split(ruleWords[idx+1], "/")[0]
+				mark64, err := strconv.ParseInt(markString, 0, 32)
+				if err == nil {
+					ruleMark = int(mark64)
+				} else {
+					fw.LogError(err, ruleString)
+				}
+			}
+		}
+		if ruleMark != mark {
+			continue
+		}
 		result.VLANNames = append(result.VLANNames, ifName)
 	}
 
@@ -390,7 +704,7 @@ func (fw iptables) InquireACLs() (result networkControl.ACLs) {
 func (fw iptables) InquireSNATs() (result networkControl.SNATs) {
 	ruleStrings, err := fw.iptables.List("nat", "SNATs")
 	if err != nil {
-		panic(err)
+		fw.LogPanic(err)
 	}
 	snatMap := map[string]*networkControl.SNAT{}
 	for _, ruleString := range ruleStrings {
@@ -704,6 +1018,7 @@ func (fw *iptables) AddACL(acl networkControl.ACL) (err error) {
 
 	// adding an ipset
 
+	/* See https://bugzilla.kernel.org/show_bug.cgi?id=199107
 	var set *ipset.IPSet
 	set, err = ipset.New(setName, "hash:net,iface", &ipset.Params{HashSize: 1048576})
 	if err != nil {
@@ -716,12 +1031,27 @@ func (fw *iptables) AddACL(acl networkControl.ACL) (err error) {
 			return
 		}
 	}
+	*/
+
+	if fw.aclToMark[acl.Name] == 0 {
+		fw.markMax_ACL++
+		mark := fw.markMax_ACL << 8
+		fw.markToACL[mark] = acl.Name
+		fw.aclToMark[acl.Name] = mark
+	}
+
+	for _, vlanName := range acl.VLANNames {
+		err = fw.iptables.AppendUnique("mangle", "ACLs", "-i", fw.GetHost().IfNameToHostIfName(vlanName), "-j", "MARK", "--set-mark", strconv.Itoa(fw.ACLToMark(acl.Name))+"/0xff00", "-m", "comment", "--comment", "{acl:"+acl.Name+"}")
+		if err != nil {
+			fw.LogError(err)
+		}
+	}
 
 	// adding a chain to iptables
 
 	err = fw.iptables.NewChain("filter", chainName)
 	if err != nil {
-		if err.Error() == "Chain already exists." {
+		if strings.Index(err.Error(), "Chain already exists.") != -1 {
 			fw.LogWarning(err)
 		} else {
 			fw.LogError(err)
@@ -736,9 +1066,13 @@ func (fw *iptables) AddACL(acl networkControl.ACL) (err error) {
 		}
 	}
 
+	/* See https://bugzilla.kernel.org/show_bug.cgi?id=199107
 	// activating the chain
 
 	return fw.iptables.AppendUnique("filter", "ACLs", "-m", "set", "--match-set", setName, "src,src", "-j", chainName)
+	*/
+
+	return fw.iptables.AppendUnique("filter", "ACLs", "-m", "mark", "--mark", strconv.Itoa(fw.ACLToMark(acl.Name))+"/0xff00", "-j", chainName)
 }
 
 type dnatCommentT struct {
@@ -879,7 +1213,7 @@ func (fw *iptables) RemoveACL(acl networkControl.ACL) error {
 	chainName := setName
 
 	// deactivating the chain
-
+	/* See https://bugzilla.kernel.org/show_bug.cgi?id=199107
 	err := fw.iptables.Delete("filter", "ACLs", "-m", "set", "--match-set", setName, "src,src", "-j", chainName)
 	if err != nil {
 		if err.Error() == "No chain/target/match by that name." {
@@ -889,23 +1223,33 @@ func (fw *iptables) RemoveACL(acl networkControl.ACL) error {
 			fw.LogWarning(err)
 		}
 	}
+	*/
 
 	// removing the chain
 
-	err = fw.iptables.ClearChain("filter", chainName)
-	if err != nil {
-		fw.LogError(err)
-		return err
+	{
+		err := fw.iptables.ClearChain("filter", chainName)
+		if err != nil {
+			fw.LogError(err)
+			return err
+		}
 	}
-	err = fw.iptables.DeleteChain("filter", chainName)
-	if err != nil {
-		fw.LogError(err)
-		return err
+
+	{
+		err := fw.iptables.DeleteChain("filter", chainName)
+		if err != nil {
+			fw.LogError(err)
+			return err
+		}
 	}
+
+	return nil
 
 	// removing the set
 
+	/* https://bugzilla.kernel.org/show_bug.cgi?id=199107
 	return ipset.Destroy(setName)
+	*/
 }
 func (fw *iptables) RemoveSNAT(snat networkControl.SNAT) error {
 	for _, source := range snat.Sources {
