@@ -66,6 +66,7 @@ func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
 		}
 	}
 	fw.iptables.AppendUnique("filter", "FORWARD", "-j", "ACLs")
+	fw.iptables.AppendUnique("filter", "ACLs", "-j", "ACCEPT")
 	//fw.iptables.AppendUnique("filter", "FORWARD", "-j", "MARK", "--set-mark", "0x1000000/0x1000000", "-m", "comment", "--comment", "mark that this packet is not mine (a forwarded packet)")
 	//fw.iptables.AppendUnique("filter", "OUTPUT", "-m", "mark", "!", "--mark", "0x1000000/0x1000000", "-j", "ACCEPT", "-m", "comment", "--comment", "it's my traffic, it should not be filtered")
 	fw.iptables.AppendUnique("filter", "FORWARD", "-j", "SECURITY_LEVELs")
