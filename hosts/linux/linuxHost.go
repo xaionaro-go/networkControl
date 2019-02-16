@@ -21,9 +21,9 @@ import (
 )
 
 var (
-	errNotImplemented = errors.New("not implemented (yet?)")
+	errNotImplemented  = errors.New("not implemented (yet?)")
 	errIfNameCollision = errors.New("Got a collision of backend interface names. It's an internal error caused by a limit in 15 characters for linux network interface names. You can change crc32q value in linuxHost.go to bypass the problem.")
-	errUnknownIfName = errors.New("Unknown interface in the backend. Cannot convert back to the real interface name")
+	errUnknownIfName   = errors.New("Unknown interface in the backend. Cannot convert back to the real interface name")
 )
 
 const (
@@ -46,7 +46,6 @@ type linuxHost struct {
 	crc32q        *crc32.Table
 	ifNameMap     map[string]string
 }
-
 
 func (host *linuxHost) IfNameToLinuxIfName(ifName string) string {
 	if len(ifName) < 15 {
@@ -458,6 +457,14 @@ func (host *linuxHost) RemoveRoute(route networkControl.Route) error {
 }
 
 func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
+	// Setting global flags
+
+	if err := host.GetFirewall().SetEnablePermitInterInterface(stateDiff.Updated.PermitInterInterface); err != nil {
+		host.LogError(err, `SetEnablePermitInterInterface`, stateDiff.Updated.PermitInterInterface)
+	}
+	if err := host.GetFirewall().SetEnablePermitIntraInterface(stateDiff.Updated.PermitIntraInterface); err != nil {
+		host.LogError(err, `SetEnablePermitIntraInterface`, stateDiff.Updated.PermitIntraInterface)
+	}
 
 	// Adding
 
@@ -573,15 +580,15 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 	}()
 
 	/*
-	// But we need to revert the old state on the disk (the new state shouldn't be saved on the disk, yet)
-	host.SetDHCPState(oldDHCPState)
-	err = host.dhcpd.SaveConfig()
-	if err != nil {
-		host.LogError(err)
-		return err
-	}
-	// And the running state should be new in our information
-	host.SetDHCPState(stateDiff.Updated.DHCP)
+		// But we need to revert the old state on the disk (the new state shouldn't be saved on the disk, yet)
+		host.SetDHCPState(oldDHCPState)
+		err = host.dhcpd.SaveConfig()
+		if err != nil {
+			host.LogError(err)
+			return err
+		}
+		// And the running state should be new in our information
+		host.SetDHCPState(stateDiff.Updated.DHCP)
 	*/
 
 	// Removing
@@ -642,7 +649,7 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 
 func (host *linuxHost) runScript(scriptName string) (err error) {
 	host.Debugf("runScript(\"%v\")", scriptName)
-	scriptPath := SCRIPTS_PATH+"/"+scriptName
+	scriptPath := SCRIPTS_PATH + "/" + scriptName
 
 	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
 		return nil
@@ -873,7 +880,7 @@ func (host *linuxHost) SetDHCPState(state networkControl.DHCP) error {
 }
 
 type netConfigT struct {
-	VLANs  networkControl.VLANs
+	VLANs networkControl.VLANs
 }
 
 func (host *linuxHost) SaveToDisk() (err error) { // ATM, works only with Debian with preinstalled packages: "iproute2", "iptables" and "ipset"!

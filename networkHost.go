@@ -250,6 +250,9 @@ type FirewallI interface {
 	RemoveDNAT(DNAT) error
 
 	SetSecurityLevel(ifName string, securityLevel int) error
+
+	SetEnablePermitInterInterface(bool) error
+	SetEnablePermitIntraInterface(bool) error
 }
 
 type Hosts []HostI
@@ -515,6 +518,14 @@ func (firewalls Firewalls) RemoveDNAT(dnat DNAT) error {
 	return nil
 }
 func (firewalls Firewalls) SetSecurityLevel(ifName string, securityLevel int) error {
+	panic(errNotImplemented)
+	return nil
+}
+func (firewalls Firewalls) SetEnablePermitInterInterface(enable bool) error {
+	panic(errNotImplemented)
+	return nil
+}
+func (firewalls Firewalls) SetEnablePermitIntraInterface(enable bool) error {
 	panic(errNotImplemented)
 	return nil
 }

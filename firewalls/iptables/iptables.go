@@ -50,6 +50,7 @@ func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
 	fw.iptables.NewChain("mangle", "IN_SECURITY_LEVELs")
 	fw.iptables.NewChain("mangle", "OUT_SECURITY_LEVELs")
 	fw.iptables.NewChain("filter", "ACLs")
+	fw.iptables.NewChain("filter", "ACCEPT_DNATs")
 	fw.iptables.NewChain("filter", "SECURITY_LEVELs")
 	fw.iptables.NewChain("nat", "SNATs")
 	fw.iptables.NewChain("nat", "DNATs")
@@ -66,7 +67,7 @@ func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
 		}
 	}
 	fw.iptables.AppendUnique("filter", "FORWARD", "-j", "ACLs")
-	fw.iptables.AppendUnique("filter", "ACLs", "-j", "ACCEPT")
+	fw.iptables.AppendUnique("filter", "ACLs", "-j", "ACCEPT_DNATs")
 	//fw.iptables.AppendUnique("filter", "FORWARD", "-j", "MARK", "--set-mark", "0x1000000/0x1000000", "-m", "comment", "--comment", "mark that this packet is not mine (a forwarded packet)")
 	//fw.iptables.AppendUnique("filter", "OUTPUT", "-m", "mark", "!", "--mark", "0x1000000/0x1000000", "-j", "ACCEPT", "-m", "comment", "--comment", "it's my traffic, it should not be filtered")
 	fw.iptables.AppendUnique("filter", "FORWARD", "-j", "SECURITY_LEVELs")
@@ -86,24 +87,32 @@ func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
 	return fw
 }
 
+func (fw *iptables) SetEnablePermitInterInterface(enable bool) error {
+	//fw.isSameSecurityTraffic = enable
+	return nil
+}
+func (fw *iptables) SetEnablePermitIntraInterface(enable bool) error {
+	return nil
+}
+
 func (fw iptables) GetSecurityLevels() (securityLevels []int) {
 	/*
-	chainNames := fw.iptables.ListChains("filter")
-	for _, chainName := range chainNames {
-		if strings.Index(chainName, "IFACES.SECURITY_LEVEL.") != 0 {
-			continue
+		chainNames := fw.iptables.ListChains("filter")
+		for _, chainName := range chainNames {
+			if strings.Index(chainName, "IFACES.SECURITY_LEVEL.") != 0 {
+				continue
+			}
+			words := strings.Split(chainName, ".")
+			securityLevelString := words[2]
+			securityLevel, err := strconv.Atoi(securityLevelString)
+			if err != nil {
+				fw.LogError(err, securityLevelString)
+				continue
+			}
+			securityLevels = append(securityLevels, securityLevel)
 		}
-		words := strings.Split(chainName, ".")
-		securityLevelString := words[2]
-		securityLevel, err := strconv.Atoi(securityLevelString)
-		if err != nil {
-			fw.LogError(err, securityLevelString)
-			continue
-		}
-		securityLevels = append(securityLevels, securityLevel)
-	}
 
-	return
+		return
 	*/
 	for securityLevel, _ := range fw.securityLevelToMark {
 		securityLevels = append(securityLevels, securityLevel)
@@ -331,7 +340,13 @@ func (fw *iptables) createSecurityLevelRules() (err error) {
 				return err
 			}
 		}
-
+		/*
+		   -A IFACES.SECURITY_LEVEL.50 -j IFACES.SECURITY_LEVEL.0
+		   -A IFACES.SECURITY_LEVEL.50 -m mark --mark 0x200/0xff00 -j ACCEPT
+		   -A SECURITY_LEVELs -m mark --mark 0x1/0xff -j IFACES.SECURITY_LEVEL.50
+		   -A SECURITY_LEVELs -m mark --mark 0x2/0xff -j IFACES.SECURITY_LEVEL.0
+		   -A SECURITY_LEVELs -j REJECT --reject-with icmp-port-unreachable
+		*/
 		{
 			var err error
 			err = fw.iptables.AppendUnique("filter", "SECURITY_LEVELs", "-m", "mark", "--mark", strconv.Itoa(fw.SecurityLevelToMark(securityLevelA))+"/0xff", "-j", chainName)
@@ -689,7 +704,7 @@ func (fw iptables) inquireACL(aclName string) (result networkControl.ACL) {
 
 	// Getting rules of the ACL
 
-	chainName := "ACL.IN."+aclName
+	chainName := "ACL.IN." + aclName
 
 	fw.iptables.NewChain("filter", chainName) // creating the chain if not exists (could happened on a dirty work before)
 	rules, err := fw.iptables.List("filter", chainName)
@@ -764,12 +779,12 @@ func (fw iptables) InquireSNATs() (result networkControl.SNATs) {
 					panic(fmt.Errorf("%v: %v", err, commentStr))
 				}
 				snat.FWSMGlobalId = snatComment.FWSMGlobalId
-				source.IfName     = snatComment.IfName
+				source.IfName = snatComment.IfName
 				words = words[2:]
 
 			case "-j":
 				if words[1] != "SNAT" || words[2] != "--to-source" {
-					panic("illegal rule: "+ruleString)
+					panic("illegal rule: " + ruleString)
 				}
 				snat.NATTo = net.ParseIP(words[3])
 				words = words[4:]
@@ -818,7 +833,7 @@ func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
 		for len(words) > 0 {
 			switch words[0] {
 			/*case "-i":
-				words = words[2:]*/
+			words = words[2:]*/
 
 			case "-m":
 				words = words[2:]
@@ -866,7 +881,7 @@ func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
 
 			case "-j":
 				if words[1] != "DNAT" || words[2] != "--to-destination" {
-					panic("illegal rule: "+ruleString)
+					panic("illegal rule: " + ruleString)
 				}
 				dnat.NATTo.Parse(words[3])
 				words = words[4:]
@@ -877,6 +892,9 @@ func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
 		}
 		dnat.Destinations = append(dnat.Destinations, destination)
 
+		if ok, _ := fw.iptables.Exists("filter", "ACCEPT_DNATs", append(fw.ipportDestinationStrings(dnat.NATTo), "-j", "ACCEPT")...); !ok {
+			continue
+		}
 		result = append(result, &dnat)
 	}
 
@@ -900,7 +918,6 @@ func ruleToNetfilterRule(rule networkControl.ACLRule) (result []string) {
 	if len(rule.FromPortRanges) != 1 || len(rule.ToPortRanges) != 1 {
 		panic(fmt.Errorf("%v: %v, %v: %v", errNotImplemented, rule.FromPortRanges, rule.ToPortRanges, rule))
 	}
-
 
 	if rule.FromPortRanges[0].Start != 0 || rule.FromPortRanges[0].End != 65535 || rule.ToPortRanges[0].Start != 0 || rule.ToPortRanges[0].End != 65535 {
 		if rule.FromPortRanges[0].Start != rule.FromPortRanges[0].End || rule.ToPortRanges[0].Start != rule.ToPortRanges[0].End {
@@ -973,7 +990,7 @@ func ParseNetfilterPortRanges(portRangesString string) (portRanges networkContro
 
 		portRange := networkControl.PortRange{
 			Start: uint16(portRangeStart),
-			End: uint16(portRangeEnd),
+			End:   uint16(portRangeEnd),
 		}
 
 		portRanges = append(portRanges, portRange)
@@ -1203,10 +1220,28 @@ func (fw iptables) dnatRuleStrings(dnat networkControl.DNAT, destination network
 	return rule
 }
 
+func (fw iptables) ipportDestinationStrings(ipport networkControl.IPPort) (r []string) {
+	if ipport.Protocol != nil {
+		if ipport.Protocol.String() != `ip` {
+			r = append(r, `-p`, ipport.Protocol.String())
+		}
+	}
+	r = append(r, `-d`, ipport.IP.String())
+	if ipport.Port != nil {
+		r = append(r, `--dport`, strconv.Itoa(int(*ipport.Port)))
+	}
+
+	return
+}
+
 func (fw *iptables) AddDNAT(dnat networkControl.DNAT) error {
 	for _, destination := range dnat.Destinations {
-		err := fw.iptables.AppendUnique("nat", "DNATs", fw.dnatRuleStrings(dnat, destination)...)
-		if err != nil {
+		if err := fw.iptables.AppendUnique("nat", "DNATs", fw.dnatRuleStrings(dnat, destination)...); err != nil {
+			fw.LogError(err)
+			return err
+		}
+
+		if err := fw.iptables.AppendUnique("filter", "ACCEPT_DNATs", append(fw.ipportDestinationStrings(dnat.NATTo), "-j", "ACCEPT")...); err != nil {
 			fw.LogError(err)
 			return err
 		}
@@ -1281,10 +1316,13 @@ func (fw *iptables) RemoveSNAT(snat networkControl.SNAT) error {
 }
 func (fw *iptables) RemoveDNAT(dnat networkControl.DNAT) error {
 	for _, destination := range dnat.Destinations {
-		err := fw.iptables.Delete("nat", "DNATs", fw.dnatRuleStrings(dnat, destination)...)
-		if err != nil {
+		if err := fw.iptables.Delete("nat", "DNATs", fw.dnatRuleStrings(dnat, destination)...); err != nil {
 			fw.LogError(err)
 			return err
+		}
+		if err := fw.iptables.Delete("filter", "ACCEPT_DNATs", append(fw.ipportDestinationStrings(dnat.NATTo), "-j", "ACCEPT")...); err != nil {
+			fw.LogError(err)
+			return nil
 		}
 	}
 	return nil

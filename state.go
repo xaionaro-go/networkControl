@@ -6,12 +6,14 @@ import (
 )
 
 type State struct {
-	DHCP         DHCP
-	BridgedVLANs VLANs
-	ACLs         ACLs
-	SNATs        SNATs
-	DNATs        DNATs
-	Routes       Routes
+	PermitInterInterface bool
+	PermitIntraInterface bool
+	DHCP                 DHCP
+	BridgedVLANs         VLANs
+	ACLs                 ACLs
+	SNATs                SNATs
+	DNATs                DNATs
+	Routes               Routes
 }
 
 type setSlicer interface {
@@ -66,6 +68,8 @@ func (newState State) Diff(oldState State) (diff StateDiff) {
 		}
 	}
 
+	diff.Updated.PermitInterInterface = newState.PermitInterInterface
+	diff.Updated.PermitIntraInterface = newState.PermitIntraInterface
 	diff.Updated.DHCP = newState.DHCP
 
 	return
