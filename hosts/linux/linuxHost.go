@@ -565,30 +565,32 @@ func (host *linuxHost) ApplyDiff(stateDiff networkControl.StateDiff) error {
 		}
 	}
 
-	var err error
-
 	host.Debugf("restarting DHCPd")
 
 	host.SetDHCPState(stateDiff.Updated.DHCP)
 	go func() {
 		// Running the new state on DHCP
 		//oldDHCPState := networkControl.DHCP(host.dhcpd.Config.Root)
-		err = host.dhcpd.Restart()
-		if err != nil {
+
+		if err := host.dhcpd.SaveConfig(); err != nil {
 			host.LogWarning(err)
+			return
+		}
+		if err := host.dhcpd.Restart(); err != nil {
+			host.LogWarning(err)
+			return
 		}
 	}()
 
-	/*
-		// But we need to revert the old state on the disk (the new state shouldn't be saved on the disk, yet)
-		host.SetDHCPState(oldDHCPState)
-		err = host.dhcpd.SaveConfig()
-		if err != nil {
-			host.LogError(err)
-			return err
-		}
-		// And the running state should be new in our information
-		host.SetDHCPState(stateDiff.Updated.DHCP)
+	/*// But we need to revert the old state on the disk (the new state shouldn't be saved on the disk, yet)
+	host.SetDHCPState(oldDHCPState)
+	err = host.dhcpd.SaveConfig()
+	if err != nil {
+		host.LogError(err)
+		return err
+	}
+	// And the running state should be new in our information
+	host.SetDHCPState(stateDiff.Updated.DHCP)
 	*/
 
 	// Removing
