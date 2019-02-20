@@ -14,6 +14,7 @@ import (
 var (
 	errNotImplemented = errors.New("not implemented (yet?)")
 	denyCommand       = `DROP`
+	denyToOtherGWs    = true
 )
 
 type iptables struct {
@@ -72,6 +73,9 @@ func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
 	//fw.iptables.AppendUnique("filter", "FORWARD", "-j", "MARK", "--set-mark", "0x1000000/0x1000000", "-m", "comment", "--comment", "mark that this packet is not mine (a forwarded packet)")
 	//fw.iptables.AppendUnique("filter", "OUTPUT", "-m", "mark", "!", "--mark", "0x1000000/0x1000000", "-j", "ACCEPT", "-m", "comment", "--comment", "it's my traffic, it should not be filtered")
 	fw.iptables.AppendUnique("filter", "FORWARD", "-j", "SECURITY_LEVELs")
+	if denyToOtherGWs {
+		fw.iptables.AppendUnique("filter", "INPUT", "-m", "addrtype", "!", "--dst-type", "LOCAL", " --limit-iface-in", "-j", denyCommand)
+	}
 	fw.iptables.AppendUnique("nat", "PREROUTING", "-j", "DNATs")
 	fw.iptables.AppendUnique("nat", "POSTROUTING", "-d", "10.0.0.0/8", "-j", "ACCEPT")
 	fw.iptables.AppendUnique("nat", "POSTROUTING", "-d", "172.16.0.0/12", "-j", "ACCEPT")
@@ -836,7 +840,7 @@ func (fw iptables) InquireDNATs() (result networkControl.DNATs) {
 				var err error
 				subWords := strings.Split(words[1], "/")
 				if len(subWords) > 1 && subWords[1] != "32" {
-					panic(fmt.Sprintf("%v: %v: %v", errNotImplemented, subWords, words, ruleString))
+					panic(fmt.Sprintf("%v: %v: %v: %v", errNotImplemented, subWords, words, ruleString))
 				}
 				destination.IP = net.ParseIP(subWords[0])
 				if err != nil {
