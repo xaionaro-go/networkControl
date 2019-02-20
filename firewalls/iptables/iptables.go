@@ -13,6 +13,7 @@ import (
 
 var (
 	errNotImplemented = errors.New("not implemented (yet?)")
+	denyCommand       = `DROP`
 )
 
 type iptables struct {
@@ -340,13 +341,6 @@ func (fw *iptables) createSecurityLevelRules() (err error) {
 				return err
 			}
 		}
-		/*
-		   -A IFACES.SECURITY_LEVEL.50 -j IFACES.SECURITY_LEVEL.0
-		   -A IFACES.SECURITY_LEVEL.50 -m mark --mark 0x200/0xff00 -j ACCEPT
-		   -A SECURITY_LEVELs -m mark --mark 0x1/0xff -j IFACES.SECURITY_LEVEL.50
-		   -A SECURITY_LEVELs -m mark --mark 0x2/0xff -j IFACES.SECURITY_LEVEL.0
-		   -A SECURITY_LEVELs -j REJECT --reject-with icmp-port-unreachable
-		*/
 		{
 			var err error
 			err = fw.iptables.AppendUnique("filter", "SECURITY_LEVELs", "-m", "mark", "--mark", strconv.Itoa(fw.SecurityLevelToMark(securityLevelA))+"/0xff", "-j", chainName)
@@ -356,18 +350,18 @@ func (fw *iptables) createSecurityLevelRules() (err error) {
 			}
 		}
 
-		deleteOld, err := fw.iptables.Exists("filter", "SECURITY_LEVELs", "-j", "REJECT")
+		deleteOld, err := fw.iptables.Exists("filter", "SECURITY_LEVELs", "-j", denyCommand)
 		if err != nil {
 			fw.LogError(err)
 			return err
 		}
-		err = fw.iptables.Append("filter", "SECURITY_LEVELs", "-j", "REJECT")
+		err = fw.iptables.Append("filter", "SECURITY_LEVELs", "-j", denyCommand)
 		if err != nil {
 			fw.LogError(err)
 			return err
 		}
 		if deleteOld {
-			err = fw.iptables.Delete("filter", "SECURITY_LEVELs", "-j", "REJECT")
+			err = fw.iptables.Delete("filter", "SECURITY_LEVELs", "-j", denyCommand)
 			if err != nil {
 				fw.LogError(err)
 				return err
@@ -946,7 +940,7 @@ func ruleToNetfilterRule(rule networkControl.ACLRule) (result []string) {
 	case networkControl.ACL_ALLOW:
 		action = "ACCEPT"
 	case networkControl.ACL_DENY:
-		action = "REJECT"
+		action = denyCommand
 	default:
 		panic(fmt.Errorf("Unknown action: %v", rule))
 	}
