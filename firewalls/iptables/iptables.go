@@ -74,7 +74,7 @@ func NewFirewall(host networkControl.HostI) networkControl.FirewallI {
 	//fw.iptables.AppendUnique("filter", "OUTPUT", "-m", "mark", "!", "--mark", "0x1000000/0x1000000", "-j", "ACCEPT", "-m", "comment", "--comment", "it's my traffic, it should not be filtered")
 	fw.iptables.AppendUnique("filter", "FORWARD", "-j", "SECURITY_LEVELs")
 	if denyToOtherGWs {
-		fw.iptables.AppendUnique("filter", "INPUT", "-m", "addrtype", "!", "--dst-type", "LOCAL", " --limit-iface-in", "-j", denyCommand)
+		fw.iptables.AppendUnique("filter", "INPUT", "-m", "addrtype", "!", "--dst-type", "LOCAL", "--limit-iface-in", "-j", denyCommand)
 	}
 	fw.iptables.AppendUnique("nat", "PREROUTING", "-j", "DNATs")
 	fw.iptables.AppendUnique("nat", "POSTROUTING", "-d", "10.0.0.0/8", "-j", "ACCEPT")
